@@ -1,0 +1,46 @@
+# Core RAG infrastructure
+langchain==0.3.7
+langchain-community==0.3.7
+langchain-huggingface==0.1.2
+faiss-cpu==1.8.0
+sentence-transformers==3.2.1
+
+# LLM inference
+transformers==4.46.3
+torch==2.4.1
+accelerate==1.0.1
+bitsandbytes==0.44.1
+
+# NLI Guardrail (Unit 1)
+# cross-encoder/nli-deberta-v3-base is downloaded via sentence-transformers
+
+# Defense tools
+# Llama Prompt Guard — download via HuggingFace Hub
+huggingface-hub==0.26.2
+
+# Dataset loading
+datasets==3.1.0
+pandas==2.2.3
+numpy==1.26.4
+
+# HTTP / API calls
+openai==1.54.4
+anthropic==0.37.1
+requests==2.32.3
+
+# Evaluation
+scipy==1.14.1
+scikit-learn==1.5.2
+textstat==0.7.3      # For Flesch reading ease (Gap 7 stratification)
+
+# Visualization
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# Utilities
+tqdm==4.67.0
+python-dotenv==1.0.1
+pyyaml==6.0.2
+
+# Attack dataset
+jailbreakbench
