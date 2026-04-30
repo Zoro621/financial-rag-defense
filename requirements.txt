@@ -26,6 +26,7 @@ numpy==1.26.4
 # HTTP / API calls — openai package is used for ALL providers
 # (Groq, Gemini, and OpenRouter all expose OpenAI-compatible endpoints)
 openai==1.54.4
+httpx<0.28.0
 requests==2.32.3
 
 # Evaluation
