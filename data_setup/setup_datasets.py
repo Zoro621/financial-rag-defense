@@ -175,17 +175,10 @@ def setup_attack_dataset():
 
 
 def _load_behaviors_from_csv():
-    import pandas as pd
-    jbb_raw = Path("data/attacks/jbb_raw")
-    if not jbb_raw.exists():
-        subprocess.run(
-            ["git", "clone", "https://github.com/JailbreakBench/jailbreakbench",
-             str(jbb_raw)],
-            check=True,
-        )
-    csv_path = jbb_raw / "data" / "behaviors" / "behaviors.csv"
-    df = pd.read_csv(csv_path)
-    return df[["Behavior", "Goal"]].to_dict("records")
+    from datasets import load_dataset
+    print("  Downloading JailbreakBench behaviors from HuggingFace...")
+    ds = load_dataset("JailbreakBench/JBB-Behaviors", "behaviors", split="train")
+    return ds.to_pandas()[["Behavior", "Goal"]].to_dict("records")
 
 
 # =========================================================================== #
