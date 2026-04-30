@@ -23,9 +23,9 @@ datasets==3.1.0
 pandas==2.2.3
 numpy==1.26.4
 
-# HTTP / API calls
+# HTTP / API calls — openai package is used for ALL providers
+# (Groq, Gemini, and OpenRouter all expose OpenAI-compatible endpoints)
 openai==1.54.4
-anthropic==0.37.1
 requests==2.32.3
 
 # Evaluation
@@ -43,4 +43,7 @@ python-dotenv==1.0.1
 pyyaml==6.0.2
 
 # Attack dataset
-jailbreakbench
+# jailbreakbench requires uvloop, which is not supported on Windows.
+# It is safe to comment this out because data_setup/setup_datasets.py 
+# has an automatic fallback to git clone the repo and read the CSV.
+# jailbreakbench

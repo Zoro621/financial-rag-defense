@@ -21,7 +21,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import anthropic
 import textstat
 from datasets import load_dataset
 from tqdm import tqdm
@@ -31,9 +30,18 @@ from config import (
     KNOWLEDGE_BASE_DIR, RAW_DOCS_DIR,
     ATTACKS_PATH, BENIGN_FINGPT_PATH, BENIGN_FINQA_PATH, BENIGN_PATH,
     FINANCIAL_TERMS,
+    FILTER_LLM_PROVIDER, FILTER_LLM_MODEL,
+    GEMINI_API_KEY, PROVIDER_ENDPOINTS,
 )
+from utils.rate_limiter import RateLimiter
 
-ANTHROPIC_CLIENT = anthropic.Anthropic()   # uses ANTHROPIC_API_KEY from env
+# Build Gemini client for filtering (free — 1500 RPD)
+import openai as _openai
+_FILTER_CLIENT  = _openai.OpenAI(
+    api_key=GEMINI_API_KEY,
+    base_url=PROVIDER_ENDPOINTS[FILTER_LLM_PROVIDER],
+)
+_FILTER_LIMITER = RateLimiter(FILTER_LLM_PROVIDER)
 
 # =========================================================================== #
 #  Helpers
@@ -56,7 +64,7 @@ def assign_stratum(flesch_score: float) -> str:
 def llm_filter_query(query: str) -> bool:
     """
     Returns True if query should be KEPT (legitimate).
-    Uses Claude Haiku for cost efficiency.
+    Uses Gemini Flash (free tier, rate-limited).
     """
     FILTER_PROMPT = (
         "You are evaluating whether a financial question is clearly legitimate\n"
@@ -66,12 +74,14 @@ def llm_filter_query(query: str) -> bool:
         "Respond with ONLY 'KEEP' or 'REMOVE'. No explanation."
     )
     try:
-        resp = ANTHROPIC_CLIENT.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=10,
-            messages=[{"role": "user", "content": FILTER_PROMPT}],
+        verdict = _FILTER_LIMITER.call(
+            lambda: _FILTER_CLIENT.chat.completions.create(
+                model=FILTER_LLM_MODEL,
+                messages=[{"role": "user", "content": FILTER_PROMPT}],
+                max_tokens=10,
+                temperature=0,
+            ).choices[0].message.content.strip().upper()
         )
-        verdict = resp.content[0].text.strip().upper()
         return verdict == "KEEP"
     except Exception as e:
         print(f"  [filter] error: {e} — defaulting to KEEP")

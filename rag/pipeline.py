@@ -2,22 +2,39 @@
 rag/pipeline.py
 End-to-end RAG query pipeline with pluggable defense components.
 Implements FinancialRAGPipeline and LLMWrapper as specified in §5.2-5.3.
+
+Free-tier LLM providers (all use OpenAI-compatible REST):
+  - groq:       https://api.groq.com/openai/v1          (primary — 14400 RPD)
+  - gemini:     https://generativelanguage.googleapis.com/v1beta/openai/
+  - openrouter: https://openrouter.ai/api/v1             (fallback)
 """
 
 import time
-import os
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    BASE_LLM_PROVIDER, BASE_LLM_MODEL, HF_TOKEN,
+    BASE_LLM_PROVIDER, BASE_LLM_MODEL,
+    FALLBACK_LLM_PROVIDER, FALLBACK_LLM_MODEL,
+    GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY,
+    PROVIDER_ENDPOINTS, HF_TOKEN,
     FAISS_INDEX_DIR, KB_STATS_PATH, TOP_K_RETRIEVAL,
 )
 from rag.system_prompts import format_prompt
 from rag.vector_store import VectorStore
+from utils.rate_limiter import RateLimiter, DailyLimitError
+
+logger = logging.getLogger(__name__)
+
+_PROVIDER_API_KEYS = {
+    "groq":       lambda: GROQ_API_KEY,
+    "gemini":     lambda: GEMINI_API_KEY,
+    "openrouter": lambda: OPENROUTER_API_KEY,
+}
 
 
 # =========================================================================== #
@@ -55,8 +72,18 @@ class SuccessResponse:
 
 class LLMWrapper:
     """
-    Unified LLM interface supporting OpenAI, Anthropic, and local (Qwen2.5).
-    Returns (response_text, latency_seconds).
+    Unified LLM interface for FREE-TIER providers.
+
+    All three providers (groq, gemini, openrouter) use the OpenAI-compatible
+    REST format — only the base_url and api_key differ.
+
+    Automatic provider fallback:
+      If the primary provider hits its daily limit, falls back to
+      FALLBACK_LLM_PROVIDER (openrouter) transparently.
+
+    Rate limiting:
+      Each provider has its own RateLimiter instance enforcing RPM + min_delay.
+      All calls go through limiter.call() which handles exponential backoff.
     """
 
     def __init__(
@@ -65,77 +92,113 @@ class LLMWrapper:
         model: str = BASE_LLM_MODEL,
         hf_token: str | None = HF_TOKEN,
     ):
-        self.provider = provider
-        self.model_name = model
+        self.provider    = provider
+        self.model_name  = model
+        self._hf_token   = hf_token
 
         if provider == "local":
-            import torch
-            from transformers import (
-                AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-            )
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
-            )
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                "Qwen/Qwen2.5-7B-Instruct", token=hf_token
-            )
-            self.model = AutoModelForCausalLM.from_pretrained(
-                "Qwen/Qwen2.5-7B-Instruct",
-                quantization_config=bnb_config,
-                device_map="auto",
-                token=hf_token,
-            )
-
-        elif provider == "openai":
-            import openai
-            self.client = openai.OpenAI()
-
-        elif provider == "anthropic":
-            import anthropic
-            self.client = anthropic.Anthropic()
-
+            self._init_local(hf_token)
+            self._client   = None
+            self._limiter  = None
         else:
-            raise ValueError(f"Unknown LLM provider: {provider!r}")
+            self._client, self._limiter = self._build_client(provider)
+            # Fallback client (OpenRouter)
+            if provider != FALLBACK_LLM_PROVIDER:
+                try:
+                    self._fallback_client, self._fallback_limiter = \
+                        self._build_client(FALLBACK_LLM_PROVIDER)
+                    self._fallback_model = FALLBACK_LLM_MODEL
+                except Exception:
+                    self._fallback_client = None
+                    self._fallback_limiter = None
+                    self._fallback_model  = None
+            else:
+                self._fallback_client = None
+                self._fallback_limiter = None
+                self._fallback_model  = None
+
+    # ------------------------------------------------------------------ #
+    def _init_local(self, hf_token):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+        self.tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct", token=hf_token)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            "Qwen/Qwen2.5-7B-Instruct", quantization_config=bnb_config,
+            device_map="auto", token=hf_token,
+        )
+
+    def _build_client(self, provider: str):
+        """Build an openai.OpenAI client pointed at the given provider."""
+        import openai
+        api_key  = _PROVIDER_API_KEYS[provider]()
+        base_url = PROVIDER_ENDPOINTS[provider]
+        if not api_key:
+            raise ValueError(
+                f"API key for {provider!r} not set. "
+                f"Add {provider.upper()}_API_KEY to your .env file."
+            )
+        client  = openai.OpenAI(api_key=api_key, base_url=base_url)
+        limiter = RateLimiter(provider)
+        return client, limiter
 
     # ------------------------------------------------------------------ #
     def generate(self, prompt: str, max_tokens: int = 512) -> Tuple[str, float]:
-        """Returns (response_text, latency_seconds)."""
+        """
+        Returns (response_text, latency_seconds).
+        Automatically falls back to OpenRouter if the primary provider
+        hits its daily limit.
+        """
         t0 = time.perf_counter()
 
         if self.provider == "local":
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(
-                self.model.device
-            )
-            with __import__("torch").no_grad():
-                output = self.model.generate(
-                    **inputs,
-                    max_new_tokens=max_tokens,
-                    do_sample=False,
-                )
-            text = self.tokenizer.decode(
-                output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
-            )
+            text = self._generate_local(prompt, max_tokens)
+            return text, time.perf_counter() - t0
 
-        elif self.provider == "openai":
-            resp = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=0,
+        # --- Primary provider ------------------------------------------ #
+        try:
+            text = self._limiter.call(
+                self._api_call, self._client, self.model_name, prompt, max_tokens
             )
-            text = resp.choices[0].message.content.strip()
+            return text, time.perf_counter() - t0
 
-        elif self.provider == "anthropic":
-            resp = self.client.messages.create(
-                model=self.model_name,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = resp.content[0].text.strip()
+        except DailyLimitError as e:
+            logger.warning(f"[LLMWrapper] {e} — switching to fallback provider.")
 
-        latency = time.perf_counter() - t0
-        return text, latency
+        # --- Fallback provider ----------------------------------------- #
+        if self._fallback_client is None:
+            raise RuntimeError("Primary provider daily limit hit and no fallback configured.")
+
+        text = self._fallback_limiter.call(
+            self._api_call, self._fallback_client,
+            self._fallback_model, prompt, max_tokens
+        )
+        return text, time.perf_counter() - t0
+
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _api_call(client, model: str, prompt: str, max_tokens: int) -> str:
+        """Single OpenAI-compatible API call (used by all providers)."""
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=0,
+        )
+        return resp.choices[0].message.content.strip()
+
+    def _generate_local(self, prompt: str, max_tokens: int) -> str:
+        import torch
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        with torch.no_grad():
+            output = self.model.generate(**inputs, max_new_tokens=max_tokens, do_sample=False)
+        return self.tokenizer.decode(
+            output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
+        )
+
+    def rate_limiter_status(self) -> dict:
+        """Return current rate limiter counters for monitoring."""
+        return self._limiter.status() if self._limiter else {}
 
 
 # =========================================================================== #
