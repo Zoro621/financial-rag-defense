@@ -22,10 +22,11 @@ from pathlib import Path
 import openai
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import ATTACKS_PATH, TABLES_DIR, LOGS_DIR
+from config import ATTACKS_PATH, TABLES_DIR, LOGS_DIR, GROQ_API_KEY, PROVIDER_ENDPOINTS
 from rag.pipeline import FinancialRAGPipeline, LLMWrapper
 from evaluation.adaptive_attack import AdaptiveAttacker, run_adaptive_attack_experiment
 from evaluation.asr_judge import ASRJudge
+from utils.rate_limiter import RateLimiter
 
 
 DEFENSE_CONFIGS = {
@@ -58,11 +59,17 @@ def main(dry_run: bool = False):
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    attacks      = load_jsonl(ATTACKS_PATH)
-    judge        = ASRJudge()
-    oai_client   = openai.OpenAI()
-    sample_size  = 10 if dry_run else 100
-    max_iter     = 3  if dry_run else 10
+    attacks     = load_jsonl(ATTACKS_PATH)
+    judge       = ASRJudge()
+    sample_size = 10 if dry_run else 100
+    max_iter    = 3  if dry_run else 10
+
+    # Build Groq client for attacker (free, 14400 RPD, OpenAI-compatible)
+    attacker_client = openai.OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url=PROVIDER_ENDPOINTS["groq"],
+    )
+    attacker_limiter = RateLimiter("groq")
 
     all_results = {}
 
@@ -76,7 +83,11 @@ def main(dry_run: bool = False):
             print(f" Adaptive Attack | Config: {config_name} | Strategy: {strategy}")
             print(f"{'='*60}")
 
-            attacker = AdaptiveAttacker(oai_client, strategy=strategy)
+            attacker = AdaptiveAttacker(
+                attacker_client,
+                strategy=strategy,
+                rate_limiter=attacker_limiter,
+            )
             checkpoint = LOGS_DIR / f"adaptive_{config_name}_{strategy}.json"
 
             result = run_adaptive_attack_experiment(

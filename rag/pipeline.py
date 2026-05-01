@@ -31,9 +31,10 @@ from utils.rate_limiter import RateLimiter, DailyLimitError
 logger = logging.getLogger(__name__)
 
 _PROVIDER_API_KEYS = {
-    "groq":       lambda: GROQ_API_KEY,
-    "gemini":     lambda: GEMINI_API_KEY,
-    "openrouter": lambda: OPENROUTER_API_KEY,
+    "groq":        lambda: GROQ_API_KEY,
+    "gemini":      lambda: GEMINI_API_KEY,
+    "openrouter":  lambda: OPENROUTER_API_KEY,
+    "huggingface": lambda: HF_TOKEN,
 }
 
 
@@ -294,6 +295,22 @@ class FinancialRAGPipeline:
         t_start = time.perf_counter()
 
         # ══════════════════════════════════════════
+        # STAGE 0 — Stratification (Gap 7 / Stage 5 audit spec)
+        # ══════════════════════════════════════════
+        try:
+            import textstat as _textstat
+            flesch = _textstat.flesch_reading_ease(user_input)
+            if flesch > 60:
+                stratum = "A"
+            elif flesch >= 30:
+                stratum = "B"
+            else:
+                stratum = "C"
+        except Exception:
+            flesch, stratum = None, "B"  # default on error
+        audit.append({"stage": "stratification", "stratum": stratum, "flesch_score": flesch})
+
+        # ══════════════════════════════════════════
         # STAGE 1 — Input Filtering
         # ══════════════════════════════════════════
         if self.cfg.get("input_regex"):
@@ -326,9 +343,17 @@ class FinancialRAGPipeline:
             checker, _ = self._get_retrieval_defense()
             integrity_result = checker.check(retrieved_texts, chunk_embeddings)
             audit.append({"stage": "retrieval_integrity", **integrity_result})
-            # Log warning but continue — we do not block here
-            if not integrity_result["integrity_ok"]:
-                audit[-1]["warning"] = "Anomalous chunks detected in retrieval"
+            n_anomalous = len(integrity_result["anomalous_chunk_indices"])
+            n_total     = len(retrieved_texts)
+            if n_anomalous == n_total and n_total > 0:
+                # ALL retrieved chunks are anomalous — KB likely fully poisoned
+                audit[-1]["warning"] = "ALL chunks anomalous — retrieval blocked"
+                return BlockedResponse(
+                    trigger="retrieval_integrity", stage="retrieval",
+                    original_text=user_input, audit_trail=audit
+                )
+            elif n_anomalous > 0:
+                audit[-1]["warning"] = f"{n_anomalous}/{n_total} anomalous chunks detected — continuing with warning"
 
         # ══════════════════════════════════════════
         # STAGE 3 — Generation
@@ -348,13 +373,20 @@ class FinancialRAGPipeline:
 
         response_text, latency = self.llm.generate(formatted_prompt)
 
-        # Parse internal thoughts from safe prompt
+        # Parse internal thoughts from safe prompt (case-insensitive, colon-tolerant)
         internal_thoughts = ""
         final_response    = response_text
-        if "[Internal thoughts]" in response_text:
-            parts = response_text.split("[Final response]")
+        _resp_lower = response_text.lower()
+        if "[internal thoughts" in _resp_lower:
+            import re as _re
+            # Split on [Final response] or [Final response:] — case-insensitive
+            parts = _re.split(r'\[final response\]:?', response_text, maxsplit=1, flags=_re.IGNORECASE)
             if len(parts) == 2:
-                internal_thoughts = parts[0].replace("[Internal thoughts]:", "").strip()
+                # Strip the [Internal thoughts] / [Internal thoughts:] header from part[0]
+                thought_raw = _re.sub(
+                    r'^\[internal thoughts\]:?\s*', '', parts[0].strip(), flags=_re.IGNORECASE
+                )
+                internal_thoughts = thought_raw.strip()
                 final_response    = parts[1].strip()
             else:
                 # Fallback: use full response as final

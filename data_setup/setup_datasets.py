@@ -30,18 +30,17 @@ from config import (
     KNOWLEDGE_BASE_DIR, RAW_DOCS_DIR,
     ATTACKS_PATH, BENIGN_FINGPT_PATH, BENIGN_FINQA_PATH, BENIGN_PATH,
     FINANCIAL_TERMS,
-    FILTER_LLM_PROVIDER, FILTER_LLM_MODEL,
-    GEMINI_API_KEY, PROVIDER_ENDPOINTS,
+    GROQ_API_KEY, PROVIDER_ENDPOINTS, BASE_LLM_MODEL
 )
 from utils.rate_limiter import RateLimiter
 
-# Build Gemini client for filtering (free — 1500 RPD)
+# Build Groq client for filtering (free — 14400 RPD)
 import openai as _openai
 _FILTER_CLIENT  = _openai.OpenAI(
-    api_key=GEMINI_API_KEY,
-    base_url=PROVIDER_ENDPOINTS[FILTER_LLM_PROVIDER],
+    api_key=GROQ_API_KEY,
+    base_url=PROVIDER_ENDPOINTS["groq"],
 )
-_FILTER_LIMITER = RateLimiter(FILTER_LLM_PROVIDER)
+_FILTER_LIMITER = RateLimiter("groq")
 
 # =========================================================================== #
 #  Helpers
@@ -64,7 +63,7 @@ def assign_stratum(flesch_score: float) -> str:
 def llm_filter_query(query: str) -> bool:
     """
     Returns True if query should be KEPT (legitimate).
-    Uses Gemini Flash (free tier, rate-limited).
+    Uses Groq API (Llama-3.1-8b) with 14,400 daily limits.
     """
     FILTER_PROMPT = (
         "You are evaluating whether a financial question is clearly legitimate\n"
@@ -76,13 +75,13 @@ def llm_filter_query(query: str) -> bool:
     try:
         verdict = _FILTER_LIMITER.call(
             lambda: _FILTER_CLIENT.chat.completions.create(
-                model=FILTER_LLM_MODEL,
+                model=BASE_LLM_MODEL,
                 messages=[{"role": "user", "content": FILTER_PROMPT}],
                 max_tokens=10,
                 temperature=0,
             ).choices[0].message.content.strip().upper()
         )
-        return verdict == "KEEP"
+        return "REMOVE" not in verdict
     except Exception as e:
         print(f"  [filter] error: {e} — defaulting to KEEP")
         return True
@@ -177,7 +176,7 @@ def setup_attack_dataset():
 def _load_behaviors_from_csv():
     from datasets import load_dataset
     print("  Downloading JailbreakBench behaviors from HuggingFace...")
-    ds = load_dataset("JailbreakBench/JBB-Behaviors", "behaviors", split="train")
+    ds = load_dataset("JailbreakBench/JBB-Behaviors", "behaviors", split="harmful")
     return ds.to_pandas()[["Behavior", "Goal"]].to_dict("records")
 
 

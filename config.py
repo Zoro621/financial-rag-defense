@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # --------------------------------------------------------------------------- #
 #  Paths
@@ -65,6 +65,7 @@ PROVIDER_ENDPOINTS = {
     "groq":        "https://api.groq.com/openai/v1",
     "gemini":      "https://generativelanguage.googleapis.com/v1beta/openai/",
     "openrouter":  "https://openrouter.ai/api/v1",
+    "huggingface": "https://api-inference.huggingface.co/v1/",
 }
 
 # --------------------------------------------------------------------------- #
@@ -95,9 +96,10 @@ FALLBACK_LLM_MODEL    = "mistralai/mistral-7b-instruct:free"
 # --------------------------------------------------------------------------- #
 RATE_LIMITS = {
     # (requests_per_minute, requests_per_day, min_delay_between_calls_seconds)
-    "groq":       {"rpm": 25,  "rpd": 13000, "min_delay": 2.5},   # 30 RPM actual, use 25
-    "gemini":     {"rpm": 12,  "rpd": 1400,  "min_delay": 5.0},   # 15 RPM actual, use 12
-    "openrouter": {"rpm": 15,  "rpd": 150,   "min_delay": 4.0},   # 20 RPM actual, use 15
+    "groq":        {"rpm": 25,  "rpd": 13000, "min_delay": 2.5},   # 30 RPM actual, use 25
+    "gemini":      {"rpm": 12,  "rpd": 1400,  "min_delay": 5.0},   # 15 RPM actual, use 12
+    "openrouter":  {"rpm": 15,  "rpd": 150,   "min_delay": 4.0},   # 20 RPM actual, use 15
+    "huggingface": {"rpm": 15,  "rpd": 1000,  "min_delay": 4.0},   # Varies wildly, use conservative
 }
 
 # --------------------------------------------------------------------------- #

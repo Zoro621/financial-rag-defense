@@ -57,24 +57,35 @@ class AdaptiveAttacker:
         ),
     }
 
-    def __init__(self, attacker_llm_client, strategy: str = "paraphrase"):
+    def __init__(self, attacker_llm_client, strategy: str = "paraphrase", rate_limiter=None):
         assert strategy in self.REWRITE_STRATEGIES, (
             f"strategy must be one of {list(self.REWRITE_STRATEGIES)}"
         )
-        self.client           = attacker_llm_client
-        self.strategy         = strategy
-        self.prompt_template  = self.REWRITE_STRATEGIES[strategy]
+        self.client          = attacker_llm_client
+        self.strategy        = strategy
+        self.prompt_template = self.REWRITE_STRATEGIES[strategy]
+        # Optional RateLimiter — wraps the call with backoff if provided
+        self._limiter        = rate_limiter
 
     def rewrite(self, blocked_prompt: str) -> str:
         full_prompt = self.prompt_template.format(prompt=blocked_prompt)
-        response = self.client.chat.completions.create(
-            model=ATTACKER_LLM_MODEL,
-            messages=[{"role": "user", "content": full_prompt}],
-            max_tokens=300,
-            temperature=0.9,
-        )
-        time.sleep(0.5)   # rate-limit guard (per §16)
-        return response.choices[0].message.content.strip()
+
+        def _call():
+            resp = self.client.chat.completions.create(
+                model=ATTACKER_LLM_MODEL,
+                messages=[{"role": "user", "content": full_prompt}],
+                max_tokens=300,
+                temperature=0.9,
+            )
+            return resp.choices[0].message.content.strip()
+
+        if self._limiter is not None:
+            return self._limiter.call(_call)
+        else:
+            # Bare fallback with minimum sleep if no limiter configured
+            result = _call()
+            time.sleep(2.5)   # conservative delay without a limiter
+            return result
 
 
 # =========================================================================== #
