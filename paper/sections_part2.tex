@@ -193,5 +193,10 @@ Several open problems deserve attention in subsequent work. Deploying GPT-4-clas
 At a broader level, the results presented here suggest that deployment-level defense for financial RAG must move beyond passive token filtering toward active semantic verification. Connecting retrieval and output stages through a grounding feedback pathway---realised in this work by the response grounding verifier---embodies an architectural principle that is likely to prove valuable across other domain-critical RAG deployments in healthcare, legal services, and government advisory settings, wherever both harmful outputs and unjustified refusals carry regulatory weight.
 
 % ====================================================================
+\section*{Data and Code Availability}
+
+The source code, defense implementations, evaluation scripts, and experimental results supporting this study are publicly available at \url{https://github.com/Zoro621/financial-rag-defense}. The knowledge base was constructed from the publicly available RBC AI Banking Agent corpus (\url{https://github.com/frogcoder/llm-chatbot}). Adversarial prompts were obtained from JailbreakBench \cite{chao2024jailbreakbench} (\url{https://github.com/JailbreakBench/jailbreakbench}). Benign financial queries were drawn from the FinGPT FiQA-QA dataset (\url{https://huggingface.co/datasets/FinGPT/fingpt-fiqa_qa}) and FinQA (\url{https://github.com/czyssrs/FinQA}).
+
+% ====================================================================
 \bibliographystyle{IEEEtran}
 \bibliography{references}
