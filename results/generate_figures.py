@@ -65,7 +65,7 @@ def figure1_asr_bar():
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=45, ha="right", fontsize=8)
     ax.set_ylabel("Attack Success Rate (%)")
-    ax.set_title("Figure 1 — ASR by Defense Configuration")
+    # Title handled by LaTeX \caption — no title in image
 
     patches = [
         mpatches.Patch(color=PALETTE[0], label="Baseline configs"),
@@ -105,7 +105,7 @@ def figure2_fpr_stratified():
     ax.set_xticks(x + width)
     ax.set_xticklabels(configs, rotation=35, ha="right", fontsize=8)
     ax.set_ylabel("False Positive Rate (%)")
-    ax.set_title("Figure 2 — Stratified FPR by Defense Config (Unit 1 / Gap 7)")
+    # Title handled by LaTeX \caption
     ax.legend()
     plt.tight_layout()
     path = FIGURES_DIR / "fig2_fpr_stratified.png"
@@ -145,7 +145,7 @@ def figure3_adaptive_asr_curves():
 
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Cumulative ASR (%)")
-    ax.set_title("Figure 3 — Adaptive Attack ASR Degradation Curve")
+    # Title handled by LaTeX \caption
     ax.legend(fontsize=7, ncol=2)
     plt.tight_layout()
     path = FIGURES_DIR / "fig3_adaptive_curves.png"
@@ -193,7 +193,7 @@ def figure4_durability():
     ax.set_xticks(x)
     ax.set_xticklabels(names, fontsize=7)
     ax.set_ylabel("Iteration at which ASR first exceeds 10%")
-    ax.set_title("Figure 4 — Defense Durability")
+    # Title handled by LaTeX \caption
     patches = [
         mpatches.Patch(color=PALETTE[2], label="Never exceeded 10%"),
         mpatches.Patch(color=PALETTE[0], label="Exceeded at iteration N"),
@@ -232,7 +232,7 @@ def figure5_multiturn():
     ax.set_xticks(x)
     ax.set_xticklabels(configs, rotation=20, ha="right")
     ax.set_ylabel("ASR (%)")
-    ax.set_title("Figure 5 — Multi-Turn vs. Single-Turn ASR (Unit 4)")
+    # Title handled by LaTeX \caption
     ax.legend()
     plt.tight_layout()
     path = FIGURES_DIR / "fig5_multiturn.png"
@@ -267,7 +267,7 @@ def figure6_nli_heatmap():
     ax.set_yticks(range(len(abl2)))
     ax.set_yticklabels(abl2["threshold"].tolist())
     ax.set_ylabel("NLI Threshold")
-    ax.set_title("Figure 6 — NLI Threshold × FPR/ASR Heatmap")
+    # Title handled by LaTeX \caption
     plt.colorbar(im, ax=ax, fraction=0.046)
 
     for i in range(matrix.shape[0]):

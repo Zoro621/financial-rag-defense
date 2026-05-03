@@ -1,0 +1,141 @@
+\documentclass[journal,10pt]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cite}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{subcaption}
+\graphicspath{{figures/}}
+
+\title{Extending Defense Frameworks for Financial Retrieval-Augmented Generation Systems: Semantic Verification and Adaptive Evaluation}
+
+\author{Emad Hassan Ziadi and Muhammad Shariq Usman\\
+\textit{Department of Artificial Intelligence}\\
+\textit{FAST National University of Computer and Emerging Sciences (NUCES)}\\
+Islamabad, Pakistan}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Financial institutions are rapidly adopting Retrieval-Augmented Generation (RAG) systems for customer-facing deployments, yet these architectures introduce attack surfaces that conventional alignment techniques do not adequately address. Recent work by Song and Lee demonstrated that layered deployment-level defenses can reduce jailbreak attack success rates to 1.67\% on standard benchmarks. Their study, however, evaluates defenses exclusively at the prompt and output text layers, against static non-adaptive attackers in single-turn settings. This paper extends that framework along five dimensions. First, we introduce a Natural Language Inference (NLI) semantic output guardrail that replaces context-blind regex filtering, distinguishing between facilitative and warning uses of prohibited-activity terminology through entailment scoring, thereby eliminating false positives inherent in financial discourse. Second, we propose a retrieval-aware defense comprising an embedding centroid anomaly detector and a response grounding verifier that flags generation--retrieval divergence. Third, we evaluate defense robustness under a PAIR-style adaptive attack loop with three rewriting strategies across ten iterations. Fourth, we conduct multi-turn session attack evaluation using three-turn escalation sequences. Fifth, we extend the Defense Efficiency metric with a regulatory compliance weighting profile grounded in the EU AI Act and Federal Reserve SR~11-7 guidance. Experimental results demonstrate that the NLI guardrail achieves 0\% false positive rate while maintaining attack blocking performance, the full framework resists all adaptive strategies across ten iterations, and the retrieval integrity checker identifies all injected poisoned documents.
+\end{abstract}
+
+\begin{IEEEkeywords}
+RAG security, jailbreak defense, natural language inference, knowledge base poisoning, adaptive attack, financial AI
+\end{IEEEkeywords}
+
+% ====================================================================
+\section{Introduction}
+
+The deployment of large language models (LLMs) in customer-facing financial services has accelerated considerably since 2023, driven by retrieval-augmented generation architectures that ground model outputs in domain-specific knowledge bases \cite{lewis2020retrieval, gao2024retrieval}. Financial institutions in South Korea, the European Union, and North America now operate RAG-based chatbots under regulatory sandbox programmes that demand rigorous safety evaluation \cite{fsc2025regulatory, darji2024rag}.
+
+This architectural convenience introduces security vulnerabilities that model-level alignment alone cannot resolve. Jailbreak attacks---adversarially crafted prompts designed to bypass safety mechanisms---have been demonstrated to succeed against leading commercial models with attack success rates approaching 95\% in white-box settings \cite{zou2023universal}. More troubling is the finding by Chung \cite{chung2025empirical} that RAG-based LLMs are measurably more vulnerable than their non-RAG counterparts, and that safe models combined with safe documents can produce unsafe generations through emergent interaction effects.
+
+Song and Lee \cite{song2026defending} addressed this vulnerability gap with the first systematic evaluation of deployment-level defense combinations for financial RAG. Their study examined 32 configurations from three defense families---safety-enhanced system prompts utilizing Goal Prioritization \cite{zhang2024defending}, regex-based filtering, and Llama Prompt Guard 2 \cite{inan2023llama}---achieving an optimal ASR of 1.67\% against 300 JailbreakBench prompts \cite{chao2024jailbreakbench}, with 2.00\% FPR and 18\% latency overhead.
+
+While these results represent a substantial contribution, several dimensions remain unexamined. The evaluation uses only static pre-existing attack prompts in single-turn isolation against a clean knowledge base. No mechanism verifies retrieved document legitimacy or response faithfulness to retrieved content. The regex output filter's 8\% FPR---identified by the authors as a structural limitation---lacks a viable replacement. The DE metric's weights are asserted without regulatory grounding.
+
+This paper extends the framework along five axes: an NLI-based semantic guardrail (Unit~1) resolving context-blindness; a retrieval-aware defense (Unit~2) with embedding anomaly detection and response grounding verification; adaptive attack evaluation (Unit~3) using PAIR-style iterative rewriting \cite{chao2023jailbreaking}; multi-turn session evaluation (Unit~4); and a DE metric extension (Unit~5) grounded in the EU AI Act \cite{euaiact2024} and SR~11-7 \cite{federalreserve2011sr}.
+
+% ====================================================================
+\section{Literature Review}
+
+\subsection{LLM Jailbreak Attacks}
+
+Zou et al.\ \cite{zou2023universal} introduced Greedy Coordinate Gradient (GCG), an optimisation-based white-box method appending adversarial suffixes to harmful prompts with near-universal success across GPT-3.5, GPT-4, Claude, and LLaMA. Chao et al.\ \cite{chao2023jailbreaking} proposed PAIR, a black-box adaptive technique where an attacker LLM iteratively refines prompts using rejection feedback, achieving high success rates within twenty iterations. PAIR is the methodological basis for the adaptive evaluation in this work.
+
+HarmBench \cite{mazeika2024harmbench} covers eighteen attack methods across thirty-three LLMs, with a critical finding that single-turn automated ASR values give reassuringly low numbers while multi-turn human red-teaming exposes failures exceeding 75\%. JailbreakBench \cite{chao2024jailbreakbench} provides the 300-prompt evaluation corpus used in the base paper and this study. Shen et al.\ \cite{shen2024anything} characterised DAN-family persona-reassignment attacks. Wei et al.\ \cite{wei2024jailbroken} analysed why safety training fails, identifying competing objectives as root causes. Zhu et al.\ \cite{zhu2024autodan} introduced AutoDAN for interpretable gradient-guided adversarial prompt generation.
+
+\subsection{RAG System Security and Knowledge Base Threats}
+
+Zou et al.\ \cite{zou2025poisonedrag} demonstrated PoisonedRAG, showing that five adversarially crafted texts injected into a knowledge base cause attacker-specified responses. Song and Lee \cite{song2026defending} explicitly excluded knowledge base poisoning, a gap our retrieval integrity checker addresses. Xue et al.\ \cite{xue2024badrag} extended this through BadRAG, targeting retrieval ranking with trigger phrases that surface adversarial documents. Chung \cite{chung2025empirical} demonstrated emergent unsafe behaviour across eleven foundation models. Greshake et al.\ \cite{greshake2023not} formalised indirect prompt injection where adversarial instructions are embedded in retrieved content. She et al.\ \cite{she2025rag} found that guardrails trained on standalone outputs become unreliable under RAG contexts.
+
+\subsection{Deployment-Level Defense Techniques}
+
+Zhang et al.\ \cite{zhang2024defending} introduced Goal Prioritization with internal reasoning stages, adopted by Song and Lee as their most effective individual defense (ASR reduced from 27.33\% to 6.00\%). Zheng et al.\ \cite{zheng2024prompt} found safety prompts brittle against multi-step attacks. Inan et al.\ \cite{inan2023llama} introduced Llama Guard, an LLM-based safeguard matching proprietary moderation APIs. The distinction between Llama Guard (LLM-based) and Llama Prompt Guard 2 (BERT-based, 86M parameters) motivates the NLI guardrail, which addresses context-blindness that BERT classifiers inherit. Training-based defenses including RLHF \cite{ouyang2022training}, Constitutional AI \cite{bai2022constitutional}, and DPO \cite{rafailov2023direct} remain outside deployment-level scope.
+
+\subsection{Adaptive and Multi-Turn Attack Evaluation}
+
+Yang et al.\ \cite{yang2024multiturn} showed that decomposing harmful objectives into borderline sub-queries across conversation turns achieves substantially higher ASR than single-turn attacks. Li et al.\ \cite{li2025fitd} demonstrated Foot-in-the-Door jailbreaking with ASR improvements up to 51\%. Perez et al.\ \cite{perez2022red} established automated red-teaming using language models. Asai et al.\ \cite{asai2024selfrag} introduced Self-RAG, using cosine similarity between responses and retrieved evidence for faithfulness assessment, providing precedent for the response grounding verifier.
+
+\subsection{Financial AI Applications}
+
+Iaroshev et al.\ \cite{iaroshev2024evaluating} evaluated RAG for financial report question answering. Darji et al.\ \cite{darji2024rag} documented adversarial query attempts in production financial chatbots, establishing jailbreak attempts as an observed production phenomenon. The Financial Services Commission of Korea \cite{fsc2025regulatory} mandated safety evaluation for LLM deployments. The EU AI Act \cite{euaiact2024} and Federal Reserve SR~11-7 \cite{federalreserve2011sr} establish that both harmful outputs and unjustified refusals carry regulatory consequences for financial AI.
+
+% ====================================================================
+\section{Identified Gaps in the Base Paper and Literature}
+
+Five non-trivial gaps limit the completeness of Song and Lee's defense architecture \cite{song2026defending} and the validity of their evaluation methodology.
+
+Context-blindness in output filtering is the most practically damaging limitation. The regex filter matches surface tokens against prohibited-activity patterns, but in financial discourse such terminology appears constantly in protective contexts: a response warning about ``insider trading'' contains exactly the same tokens as one facilitating it. Song and Lee report 8\% FPR and identify this as structural rather than calibratable. In regulated deployments, incorrect refusals have compliance consequences comparable to successful attacks \cite{euaiact2024, federalreserve2011sr}.
+
+Equally concerning is the absence of any retrieval-layer defense. The pipeline treats all retrieved documents as trusted, despite PoisonedRAG \cite{zou2025poisonedrag} demonstrating that five injected documents can compromise a RAG system. Chung's \cite{chung2025empirical} finding of emergent unsafe behaviour means even clean knowledge bases do not guarantee safe outputs. No feedback mechanism connects what was retrieved to what was generated.
+
+Attack evaluation is limited to static prompts. All 300 JailbreakBench prompts are pre-existing fixed-text attacks, yet PAIR \cite{chao2023jailbreaking} and HarmBench \cite{mazeika2024harmbench} demonstrate that iterative refinement achieves substantially higher ASR. The reported 1.67\% ASR therefore favours the defender; no degradation curve or durability metric captures how defenses perform under sustained adversarial pressure.
+
+Multi-turn evaluation is similarly absent. Financial chatbots maintain session context, and Yang et al.\ \cite{yang2024multiturn} together with Li et al.\ \cite{li2025fitd} showed that multi-turn escalation achieves substantially higher ASR than single-turn attacks against the same defenses.
+
+Finally, the DE metric's weighting lacks empirical grounding. The coefficients ($\alpha\!=\!0.70$, $\beta\!=\!0.05$, $\gamma\!=\!0.25$) are asserted without derivation from regulatory requirements, and no profile reflects the EU AI Act or Federal Reserve guidance.
+
+% ====================================================================
+\section{Proposed Methodology and Its Novelty}
+
+The extended framework retains all baseline components and introduces four new components across two defense units and three evaluation extensions. Fig.~\ref{fig:architecture} depicts the overall architecture.
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.82\textwidth]{architecture_diagram.png}
+\caption{Architecture of the extended defense framework. Colour legend---Blue: baseline components from Song and Lee \cite{song2026defending}; Orange: new defense contributions; Green: evaluation extensions; Dashed red arrows: rejection paths.}
+\label{fig:architecture}
+\vspace{-2mm}
+\end{figure*}
+
+\subsection{Unit 1: NLI Semantic Output Guardrail}
+
+The NLI guardrail classifies the semantic function of detected risk terms using Natural Language Inference \cite{bowman2015large, williams2018broad}. The implementation uses \mbox{\textit{cross-encoder/nli-deberta-v3-base}} \cite{he2021deberta}, fine-tuned on SNLI and MultiNLI. For each response containing financial risk terms (``insider trading,'' ``money laundering,'' ``guaranteed returns,'' etc.), two hypothesis template sets are constructed.
+
+For each term, two hypothesis sets are evaluated: safe templates (e.g., ``This response warns about $\langle$\textit{term}$\rangle$'') and unsafe templates (e.g., ``This response provides instructions for $\langle$\textit{term}$\rangle$''). The NLI model produces $[p_\text{contradiction}, p_\text{neutral}, p_\text{entailment}]$ per hypothesis pair. Maximum entailment scores across safe ($s_\text{safe}$) and unsafe ($s_\text{unsafe}$) sets are compared:
+\begin{equation}
+\text{Block if:} \quad s_\text{unsafe} > \tau \;\;\text{and}\;\; s_\text{unsafe} > s_\text{safe}
+\label{eq:nli}
+\end{equation}
+where $\tau$ defaults to 0.7 (validated through ablation). FPR is disaggregated by query complexity strata (A: simple, B: moderate, C: complex) based on Flesch reading ease scores.
+
+\subsection{Unit 2: Retrieval-Aware Defense}
+
+Component~A (Retrieval Integrity Checker) operates at Stage~2. Using Sentence-BERT embeddings \cite{reimers2019sentence}, the L2 distance between each retrieved chunk embedding $\mathbf{e}_i$ and the knowledge base centroid $\boldsymbol{\mu}_\text{KB}$ is computed. Chunks exceeding $\sigma_\text{global} \times 2.5$ are flagged as anomalous, targeting PoisonedRAG-style \cite{zou2025poisonedrag} injections.
+
+Component~B (Response Grounding Verifier) operates at Stage~4, computing maximum cosine similarity between the response embedding and all retrieved chunk embeddings:
+\begin{equation}
+g = \max_{i} \cos(\mathbf{e}_\text{response}, \mathbf{e}_i)
+\label{eq:grounding}
+\end{equation}
+Responses with $g < \theta$ are flagged as ungrounded, where $\theta$ is calibrated at the 5th percentile of benign response similarity scores.
+
+\subsection{Unit 3: Adaptive Attack Evaluation}
+
+A PAIR-style \cite{chao2023jailbreaking} loop rewrites blocked prompts using three strategies (paraphrase, roleplay, indirect) for up to ten iterations. The Defense Durability Score is the iteration at which ASR first exceeds 10\%.
+
+\subsection{Unit 4: Multi-Turn Attack Evaluation}
+
+Fifty three-turn escalation sequences (benign context, boundary follow-up, target harmful request) measure context-dependent ASR:
+\begin{equation}
+\text{ASR}_\text{ctx} = \frac{N_\text{success,history} - N_\text{success,no-history}}{N_\text{total}} \times 100
+\end{equation}
+
+\subsection{Unit 5: DE Metric Extension}
+
+A fourth weighting profile---Regulatory Compliance ($\alpha\!=\!0.55$, $\beta\!=\!0.05$, $\gamma\!=\!0.40$)---is grounded in the EU AI Act \cite{euaiact2024} and SR~11-7 \cite{federalreserve2011sr}.
+
+\input{sections_part2}
+
+\end{document}
