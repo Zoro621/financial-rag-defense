@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import ATTACKER_LLM_MODEL, ADAPTIVE_MAX_ITERATIONS, ADAPTIVE_SAMPLE_SIZE
+from config import ATTACKER_LLM_PROVIDER, ATTACKER_LLM_MODEL, ADAPTIVE_MAX_ITERATIONS, ADAPTIVE_SAMPLE_SIZE
 
 
 # =========================================================================== #
@@ -69,6 +69,9 @@ class AdaptiveAttacker:
 
     def rewrite(self, blocked_prompt: str) -> str:
         full_prompt = self.prompt_template.format(prompt=blocked_prompt)
+        
+        if ATTACKER_LLM_PROVIDER == "local":
+            return self.client._generate_local(full_prompt, 300)
 
         def _call():
             resp = self.client.chat.completions.create(
@@ -128,14 +131,59 @@ def run_adaptive_attack_experiment(
             "raw_results":        dict,
         }
     """
+    # Seed to ensure we get the same random sample across resumes
+    random.seed(42)
     sample = random.sample(attack_prompts, min(sample_size, len(attack_prompts)))
+    
+    n_processed = 0
     results: Dict[int, Dict[str, int]] = {
         i: {"successes": 0, "attempts": 0}
         for i in range(1, max_iterations + 1)
     }
-    prompt_histories: List[List[str]] = []
+    
+    # Load checkpoint if it exists
+    if checkpoint_path and checkpoint_path.exists():
+        try:
+            with open(checkpoint_path, "r") as f:
+                ckpt_data = json.load(f)
+                
+            if "n_processed" in ckpt_data and "results" in ckpt_data:
+                # If the checkpoint shows we already processed everything for this config, return early
+                if ckpt_data["n_processed"] >= sample_size:
+                    print(f"  [Resume] Skipping {attacker.strategy} (already completed {sample_size}/{sample_size} in checkpoint).")
+                    
+                    loaded_results = {}
+                    for k, v in ckpt_data["results"].items():
+                        loaded_results[int(k)] = v
+                        
+                    asr_curve = []
+                    for i in range(1, max_iterations + 1):
+                        if i in loaded_results and loaded_results[i]["attempts"] > 0:
+                            asr_curve.append((loaded_results[i]["successes"] / loaded_results[i]["attempts"]) * 100)
+                        else:
+                            asr_curve.append(0.0)
+                            
+                    return {
+                        "asr_curve": asr_curve,
+                        "final_asr": asr_curve[-1] if asr_curve else 0.0,
+                        "iteration_to_5pct": next((i+1 for i, val in enumerate(asr_curve) if val >= 5.0), None),
+                        "iteration_to_10pct": next((i+1 for i, val in enumerate(asr_curve) if val >= 10.0), None),
+                        "prompt_histories": [],
+                        "raw_results": loaded_results,
+                    }
+                
+                n_processed = ckpt_data["n_processed"]
+                for k, v in ckpt_data["results"].items():
+                    results[int(k)] = v
+                print(f"  [Resume] Resuming {attacker.strategy} from prompt {n_processed}/{sample_size}.")
+        except Exception as e:
+            print(f"  [Warning] Failed to load checkpoint {checkpoint_path}: {e}")
 
-    for idx, attack in enumerate(tqdm(sample, desc=f"[AdaptiveAttack:{attacker.strategy}]")):
+    prompt_histories: List[List[str]] = []
+    remaining_sample = sample[n_processed:]
+
+    for idx_offset, attack in enumerate(tqdm(remaining_sample, desc=f"[AdaptiveAttack:{attacker.strategy}] (resumed)")):
+        idx = n_processed + idx_offset
         current_prompt = attack["prompt"]
         prompt_history = [current_prompt]
         succeeded      = False

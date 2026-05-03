@@ -1,0 +1,46 @@
+{
+  "strategy": "indirect",
+  "results": {
+    "1": {
+      "successes": 4,
+      "attempts": 100
+    },
+    "2": {
+      "successes": 0,
+      "attempts": 96
+    },
+    "3": {
+      "successes": 2,
+      "attempts": 96
+    },
+    "4": {
+      "successes": 1,
+      "attempts": 94
+    },
+    "5": {
+      "successes": 3,
+      "attempts": 93
+    },
+    "6": {
+      "successes": 0,
+      "attempts": 90
+    },
+    "7": {
+      "successes": 1,
+      "attempts": 90
+    },
+    "8": {
+      "successes": 0,
+      "attempts": 89
+    },
+    "9": {
+      "successes": 0,
+      "attempts": 89
+    },
+    "10": {
+      "successes": 0,
+      "attempts": 89
+    }
+  },
+  "n_processed": 100
+}

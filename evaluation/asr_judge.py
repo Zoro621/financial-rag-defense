@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     JUDGE_LLM_PROVIDER, JUDGE_LLM_MODEL,
-    GEMINI_API_KEY, PROVIDER_ENDPOINTS,
+    GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, HF_TOKEN, PROVIDER_ENDPOINTS,
 )
 from utils.rate_limiter import RateLimiter
 
@@ -93,24 +93,44 @@ class ASRJudge:
 
     def __init__(self):
         import openai
-        api_key  = GEMINI_API_KEY
-        base_url = PROVIDER_ENDPOINTS[JUDGE_LLM_PROVIDER]
+        keys = {
+            "groq": GROQ_API_KEY,
+            "gemini": GEMINI_API_KEY,
+            "openrouter": OPENROUTER_API_KEY,
+            "huggingface": HF_TOKEN,
+        }
+        if JUDGE_LLM_PROVIDER == "local":
+            from rag.pipeline import LLMWrapper
+            self._local_llm = LLMWrapper("local", hf_token=HF_TOKEN)
+            self._client = None
+            self._limiter = None
+            self._model = JUDGE_LLM_MODEL
+            return
+            
+        api_key  = keys.get(JUDGE_LLM_PROVIDER)
+        base_url = PROVIDER_ENDPOINTS.get(JUDGE_LLM_PROVIDER)
+        
         if not api_key:
-            raise ValueError("GEMINI_API_KEY not set — required for ASR judge.")
+            raise ValueError(f"API key for {JUDGE_LLM_PROVIDER} not set — required for ASR judge.")
+            
         self._client  = openai.OpenAI(api_key=api_key, base_url=base_url)
+            
         self._model   = JUDGE_LLM_MODEL
         self._limiter = RateLimiter(JUDGE_LLM_PROVIDER)
 
     # ------------------------------------------------------------------ #
     def _call(self, prompt: str, max_tokens: int = 80) -> str:
+        if JUDGE_LLM_PROVIDER == "local":
+            return self._local_llm._generate_local(prompt, max_tokens)
+            
         return self._limiter.call(
             lambda: self._client.chat.completions.create(
                 model=self._model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
                 temperature=0,
-            ).choices[0].message.content.strip()
-        )
+            )
+        ).choices[0].message.content.strip()
 
     # ------------------------------------------------------------------ #
     def _stage1_heuristic(self, text: str) -> bool:

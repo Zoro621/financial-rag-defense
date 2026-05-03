@@ -16,7 +16,8 @@ from pathlib import Path
 import openai
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import ATTACKS_PATH, MULTITURN_PATH, TABLES_DIR
+from config import ATTACKS_PATH, MULTITURN_PATH, TABLES_DIR, LOGS_DIR, HF_TOKEN, PROVIDER_ENDPOINTS
+import config
 from rag.pipeline import FinancialRAGPipeline, LLMWrapper
 from evaluation.multiturn_attack import MultiTurnEvaluator
 from evaluation.asr_judge import ASRJudge
@@ -52,7 +53,17 @@ def main():
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
 
     attacks    = load_jsonl(ATTACKS_PATH)
-    oai_client = openai.OpenAI()
+    
+    if config.ATTACKER_LLM_PROVIDER == "local":
+        from rag.pipeline import LLMWrapper
+        print("[System] Initializing local LLM for Multi-turn evaluation...")
+        oai_client = LLMWrapper("local", hf_token=config.HF_TOKEN)
+    else:
+        oai_client = openai.OpenAI(
+            api_key=config.HF_TOKEN,
+            base_url=config.PROVIDER_ENDPOINTS.get(config.ATTACKER_LLM_PROVIDER)
+        )
+        
     judge      = ASRJudge()
     evaluator  = MultiTurnEvaluator(llm_client=oai_client, judge=judge)
 

@@ -81,31 +81,56 @@ def load_jsonl(path: Path) -> list:
 
 
 def run_config(config_name: str, cfg: dict, attacks: list, benign: list,
-               judge: ASRJudge, baseline_latency: float | None) -> dict:
+               judge: ASRJudge, baseline_latency: float | None,
+               checkpoint_dir: Path) -> dict:
 
     llm      = LLMWrapper()
     pipeline = FinancialRAGPipeline(cfg, llm=llm)
     tracker  = LatencyTracker()
 
+    atk_ckpt_path = checkpoint_dir / f"{config_name}_attacks.jsonl"
+    ben_ckpt_path = checkpoint_dir / f"{config_name}_benign.jsonl"
+
     # ---- ASR: run on attack prompts ----------------------------------- #
     n_attacks  = len(attacks)
-    n_success  = 0
-    for atk in tqdm(attacks, desc=f"  [{config_name}] attacks"):
-        resp = pipeline.query(atk["prompt"])
-        if not resp.blocked:
-            result = judge.evaluate(atk["prompt"], resp.text)
-            if result.success:
-                n_success += 1
+    
+    completed_attacks = load_jsonl(atk_ckpt_path) if atk_ckpt_path.exists() else []
+    n_success = sum(1 for c in completed_attacks if c["success"])
+    remaining_attacks = attacks[len(completed_attacks):]
+    
+    with open(atk_ckpt_path, "a") as f:
+        for atk in tqdm(remaining_attacks, desc=f"  [{config_name}] attacks"):
+            resp = pipeline.query(atk["prompt"])
+            success = False
+            if not resp.blocked:
+                result = judge.evaluate(atk["prompt"], resp.text)
+                if result.success:
+                    success = True
+                    n_success += 1
+            f.write(json.dumps({"prompt": atk["prompt"], "blocked": resp.blocked, "success": success}) + "\n")
+            f.flush()
 
     asr_pct = n_success / max(n_attacks, 1) * 100
 
     # ---- FPR + Latency: run on benign queries ------------------------ #
-    benign_results = []
-    for q in tqdm(benign, desc=f"  [{config_name}] benign"):
-        resp = pipeline.query(q["query"])
-        benign_results.append(resp)
-        if not resp.blocked:
-            tracker.record(resp.latency_s)
+    completed_benign = load_jsonl(ben_ckpt_path) if ben_ckpt_path.exists() else []
+    benign_results = list(completed_benign)
+    
+    for c in completed_benign:
+        if not c["blocked"]:
+            tracker.record(c.get("latency_s", 0.0))
+            
+    remaining_benign = benign[len(completed_benign):]
+
+    with open(ben_ckpt_path, "a") as f:
+        for q in tqdm(remaining_benign, desc=f"  [{config_name}] benign"):
+            resp = pipeline.query(q["query"])
+            res_dict = {"query": q["query"], "blocked": resp.blocked, "latency_s": getattr(resp, "latency_s", 0.0)}
+            benign_results.append(res_dict)
+            if not resp.blocked:
+                tracker.record(resp.latency_s)
+            f.write(json.dumps(res_dict) + "\n")
+            f.flush()
 
     fpr_stats = compute_stratified_fpr(benign_results, benign)
     lat_stats = tracker.summary()
@@ -140,6 +165,8 @@ def run_config(config_name: str, cfg: dict, attacks: list, benign: list,
 def main():
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = RESULTS_DIR / "checkpoints" / "run_baseline"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     attacks = load_jsonl(ATTACKS_PATH)
     benign  = load_jsonl(BENIGN_PATH)
@@ -154,7 +181,7 @@ def main():
         print(f" Config: {config_name}")
         print(f"{'='*60}")
         row, baseline_latency = run_config(
-            config_name, cfg, attacks, benign, judge, baseline_latency
+            config_name, cfg, attacks, benign, judge, baseline_latency, checkpoint_dir
         )
         all_rows.append(row)
         if baseline_asr is None:

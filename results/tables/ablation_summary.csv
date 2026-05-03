@@ -1,0 +1,23 @@
+ablation_id,component,variable,value,asr_pct,fpr_pct,latency_s,de_high_security,finding
+1,NLI Guardrail,model_name,nli-MiniLM2-L6-H768,0.0,0.0,0.0,,"FPR=0.0%, lat=0.000s"
+1,NLI Guardrail,model_name,nli-deberta-v3-base,3.33,0.0,0.0,,"FPR=0.0%, lat=0.000s"
+1,NLI Guardrail,model_name,nli-deberta-v3-large,3.33,0.0,0.0,,"FPR=0.0%, lat=0.000s"
+2,NLI Guardrail,threshold,0.5,3.33,0.0,0.0,,"FPR=0.0%, ASR=3.33%"
+2,NLI Guardrail,threshold,0.6,0.0,0.0,0.0,,"FPR=0.0%, ASR=0.0%"
+2,NLI Guardrail,threshold,0.7,0.0,0.0,0.0,,"FPR=0.0%, ASR=0.0%"
+2,NLI Guardrail,threshold,0.8,0.0,0.0,0.0,,"FPR=0.0%, ASR=0.0%"
+2,NLI Guardrail,threshold,0.9,0.0,0.0,0.0,,"FPR=0.0%, ASR=0.0%"
+3,Grounding Verifier,threshold,0.25,,64.0,,,FPR on benign=64.0%
+3,Grounding Verifier,threshold,0.3,,74.0,,,FPR on benign=74.0%
+3,Grounding Verifier,threshold,0.35,,80.0,,,FPR on benign=80.0%
+3,Grounding Verifier,threshold,0.4,,90.0,,,FPR on benign=90.0%
+3,Grounding Verifier,threshold,0.45,,94.0,,,FPR on benign=94.0%
+4,Adaptive Attacker,strategy,paraphrase,0.0,,,,"final_asr=0.0%, iter_to_10pct=None"
+4,Adaptive Attacker,strategy,roleplay,0.0,,,,"final_asr=0.0%, iter_to_10pct=None"
+4,Adaptive Attacker,strategy,indirect,0.0,,,,"final_asr=0.0%, iter_to_10pct=None"
+5,Adaptive Attacker,iteration,1,0.0,,,,Cumulative ASR at iter 1: 0.0%
+5,Adaptive Attacker,iteration,3,0.0,,,,Cumulative ASR at iter 3: 0.0%
+5,Adaptive Attacker,iteration,5,0.0,,,,Cumulative ASR at iter 5: 0.0%
+5,Adaptive Attacker,iteration,7,0.0,,,,Cumulative ASR at iter 7: 0.0%
+5,Adaptive Attacker,iteration,10,0.0,,,,Cumulative ASR at iter 10: 0.0%
+6,Multi-Turn,depth,3,0.0,,,,context_dependent_asr=0.0%

@@ -53,8 +53,12 @@ def load_jsonl(path):
 
 
 def run_config(config_name, cfg, attacks, benign, judge, baseline_latency):
+    print(f"[System] Debug: run_config starting for {config_name}")
+    print("[System] Debug: Initializing LLMWrapper inside run_config")
     llm      = LLMWrapper()
+    print("[System] Debug: Initializing FinancialRAGPipeline inside run_config")
     pipeline = FinancialRAGPipeline(cfg, llm=llm)
+    print("[System] Debug: Initializing LatencyTracker inside run_config")
     tracker  = LatencyTracker()
 
     n_success = 0
@@ -99,23 +103,34 @@ def run_config(config_name, cfg, attacks, benign, judge, baseline_latency):
 
 
 def main():
+    print("\n[System] Starting Unit 1 Experiment...")
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
 
     attacks = load_jsonl(ATTACKS_PATH)
     benign  = load_jsonl(BENIGN_PATH)
+    
+    print("[System] Loading local LLM into GPU (this may take a few minutes if downloading weights for the first time)...")
     judge   = ASRJudge()
+    print("[System] Local LLM successfully loaded!")
 
     # Use config (a) baseline latency from baseline_results.csv if available
+    baseline_latency = 1.0  # fallback
     try:
-        import pandas as pd
-        baseline_df    = pd.read_csv(TABLES_DIR / "baseline_results.csv")
-        baseline_row   = baseline_df[baseline_df["defense_config"] == "a_basic_no_filters"]
-        baseline_latency = float(baseline_row["latency_s"].values[0])
-    except Exception:
-        baseline_latency = 1.0   # fallback
+        with open(TABLES_DIR / "baseline_results.csv", "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row["defense_config"] == "a_basic_no_filters":
+                    baseline_latency = float(row["latency_s"])
+                    break
+        print(f"[System] Debug: baseline latency parsed = {baseline_latency}")
+    except Exception as e:
+        print(f"[System] Debug: Could not read baseline latency: {e}")
 
+    print("[System] Debug: Setting up all_rows")
     all_rows = []
+    print(f"[System] Debug: UNIT1_CONFIGS contains {len(UNIT1_CONFIGS)} configs")
     for config_name, cfg in UNIT1_CONFIGS.items():
+        print(f"[System] Debug: Loop iteration for {config_name}")
         print(f"\n{'='*60}")
         print(f" Unit 1 Config: {config_name}")
         print(f"{'='*60}")

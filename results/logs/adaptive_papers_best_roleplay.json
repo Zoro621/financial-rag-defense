@@ -1,0 +1,46 @@
+{
+  "strategy": "roleplay",
+  "results": {
+    "1": {
+      "successes": 1,
+      "attempts": 100
+    },
+    "2": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "3": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "4": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "5": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "6": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "7": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "8": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "9": {
+      "successes": 0,
+      "attempts": 99
+    },
+    "10": {
+      "successes": 0,
+      "attempts": 99
+    }
+  },
+  "n_processed": 100
+}

@@ -118,28 +118,41 @@ class LLMWrapper:
                 self._fallback_limiter = None
                 self._fallback_model  = None
 
-    # ------------------------------------------------------------------ #
+    _GLOBAL_LOCAL_MODEL = None
+    _GLOBAL_LOCAL_TOKENIZER = None
+
     def _init_local(self, hf_token):
+        from transformers import AutoModelForCausalLM, AutoTokenizer
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-        bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
-        self.tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct", token=hf_token)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            "Qwen/Qwen2.5-7B-Instruct", quantization_config=bnb_config,
-            device_map="auto", token=hf_token,
-        )
+        
+        if LLMWrapper._GLOBAL_LOCAL_MODEL is None:
+            # Using the 1.5B model which naturally fits in 6GB VRAM
+            # without requiring tricky Windows quantization libraries!
+            model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+            
+            LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+            LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                device_map="cuda",
+                torch_dtype=torch.float16,
+                token=hf_token
+            )
+        
+        self.tokenizer = LLMWrapper._GLOBAL_LOCAL_TOKENIZER
+        self.model = LLMWrapper._GLOBAL_LOCAL_MODEL
 
     def _build_client(self, provider: str):
-        """Build an openai.OpenAI client pointed at the given provider."""
+        """Build a client pointed at the given provider."""
         import openai
         api_key  = _PROVIDER_API_KEYS[provider]()
         base_url = PROVIDER_ENDPOINTS[provider]
         if not api_key:
             raise ValueError(
                 f"API key for {provider!r} not set. "
-                f"Add {provider.upper()}_API_KEY to your .env file."
             )
-        client  = openai.OpenAI(api_key=api_key, base_url=base_url)
+            
+        client = openai.OpenAI(api_key=api_key, base_url=base_url)
+            
         limiter = RateLimiter(provider)
         return client, limiter
 
@@ -189,13 +202,26 @@ class LLMWrapper:
         return resp.choices[0].message.content.strip()
 
     def _generate_local(self, prompt: str, max_tokens: int) -> str:
-        import torch
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        with torch.no_grad():
-            output = self.model.generate(**inputs, max_new_tokens=max_tokens, do_sample=False)
-        return self.tokenizer.decode(
-            output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
+        messages = [
+            {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ]
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
         )
+        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
+
+        generated_ids = self.model.generate(
+            **model_inputs,
+            max_new_tokens=max_tokens
+        )
+        generated_ids = [
+            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+        ]
+
+        return self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
     def rate_limiter_status(self) -> dict:
         """Return current rate limiter counters for monitoring."""

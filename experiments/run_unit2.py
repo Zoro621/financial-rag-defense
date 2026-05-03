@@ -34,7 +34,6 @@ from rag.pipeline import FinancialRAGPipeline, LLMWrapper
 from defenses.retrieval_defense import POISONED_DOCS, RetrievalIntegrityChecker, ResponseGroundingVerifier
 from evaluation.asr_judge import ASRJudge
 from langchain.schema import Document
-from sentence_transformers import SentenceTransformer
 
 
 def load_jsonl(path):
@@ -144,6 +143,7 @@ def calibrate_grounding_verifier(benign: list) -> float:
     Set threshold at 5th percentile of max_similarity distribution.
     """
     print("\n=== Calibrating Grounding Verifier ===")
+    from sentence_transformers import SentenceTransformer
     emb_model = SentenceTransformer(EMBEDDING_MODEL)
     verifier  = ResponseGroundingVerifier(emb_model, threshold=0.0)  # threshold=0 = collect all sims
 
@@ -169,23 +169,28 @@ def calibrate_grounding_verifier(benign: list) -> float:
 
     # Update config.py
     config_path = Path(__file__).parent.parent / "config.py"
-    config_text = config_path.read_text()
+    config_text = config_path.read_text(encoding="utf-8")
     updated = config_text.replace(
         f"GROUNDING_THRESHOLD          = {GROUNDING_THRESHOLD}",
         f"GROUNDING_THRESHOLD          = {round(threshold, 4)}   # calibrated",
     )
-    config_path.write_text(updated)
+    config_path.write_text(updated, encoding="utf-8")
     print(f"  ✅ Updated GROUNDING_THRESHOLD in config.py → {round(threshold, 4)}")
 
     return threshold
 
 
 def main():
+    print("\n[System] Starting Unit 2 Experiment...")
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
 
     attacks = load_jsonl(ATTACKS_PATH)
     benign  = load_jsonl(BENIGN_PATH)
 
+    print("[System] Initializing local LLM first to prevent PyTorch DLL conflicts...")
+    judge = ASRJudge()  # Forces LLMWrapper and Qwen model to load first
+    print("[System] Local LLM successfully loaded! Now building poisoned index...")
+    
     # Steps 1-2: Build poisoned index
     poisoned_index_dir = build_poisoned_index()
 

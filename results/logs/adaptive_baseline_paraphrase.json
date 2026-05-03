@@ -1,0 +1,46 @@
+{
+  "strategy": "paraphrase",
+  "results": {
+    "1": {
+      "successes": 2,
+      "attempts": 100
+    },
+    "2": {
+      "successes": 1,
+      "attempts": 98
+    },
+    "3": {
+      "successes": 0,
+      "attempts": 97
+    },
+    "4": {
+      "successes": 0,
+      "attempts": 97
+    },
+    "5": {
+      "successes": 2,
+      "attempts": 97
+    },
+    "6": {
+      "successes": 1,
+      "attempts": 95
+    },
+    "7": {
+      "successes": 1,
+      "attempts": 94
+    },
+    "8": {
+      "successes": 0,
+      "attempts": 93
+    },
+    "9": {
+      "successes": 0,
+      "attempts": 93
+    },
+    "10": {
+      "successes": 0,
+      "attempts": 93
+    }
+  },
+  "n_processed": 100
+}

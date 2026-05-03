@@ -22,7 +22,8 @@ from pathlib import Path
 import openai
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import ATTACKS_PATH, TABLES_DIR, LOGS_DIR, GROQ_API_KEY, PROVIDER_ENDPOINTS
+from config import ATTACKS_PATH, TABLES_DIR, LOGS_DIR, HF_TOKEN, PROVIDER_ENDPOINTS
+import config
 from rag.pipeline import FinancialRAGPipeline, LLMWrapper
 from evaluation.adaptive_attack import AdaptiveAttacker, run_adaptive_attack_experiment
 from evaluation.asr_judge import ASRJudge
@@ -64,12 +65,17 @@ def main(dry_run: bool = False):
     sample_size = 10 if dry_run else 100
     max_iter    = 3  if dry_run else 10
 
-    # Build Groq client for attacker (free, 14400 RPD, OpenAI-compatible)
-    attacker_client = openai.OpenAI(
-        api_key=GROQ_API_KEY,
-        base_url=PROVIDER_ENDPOINTS["groq"],
-    )
-    attacker_limiter = RateLimiter("groq")
+    # Build attacker client
+    if config.ATTACKER_LLM_PROVIDER == "local":
+        from rag.pipeline import LLMWrapper
+        attacker_client = LLMWrapper("local", hf_token=config.HF_TOKEN)
+        attacker_limiter = None
+    else:
+        attacker_client = openai.OpenAI(
+            api_key=config.HF_TOKEN,
+            base_url=config.PROVIDER_ENDPOINTS["huggingface"],
+        )
+        attacker_limiter = RateLimiter("huggingface")
 
     all_results = {}
 

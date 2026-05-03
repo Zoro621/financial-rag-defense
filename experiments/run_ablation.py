@@ -203,8 +203,8 @@ def ablations_4_5_from_unit3():
                 "finding":        f"final_asr={data['final_asr']:.1f}%, "
                                   f"iter_to_10pct={data['iteration_to_10pct']}",
             })
-        except KeyError:
-            pass
+        except Exception as e:
+            print(f"  [Error] Ablation 4 failed on {strategy}: {e}")
 
     # Ablation 5: Iteration budget (full_framework, paraphrase)
     try:
@@ -223,8 +223,8 @@ def ablations_4_5_from_unit3():
                 "de_high_security": "",
                 "finding":        f"Cumulative ASR at iter {i}: {asr_at_i:.1f}%",
             })
-    except KeyError:
-        pass
+    except Exception as e:
+            print(f"  [Error] Ablation 5 failed: {e}")
 
 
 # =========================================================================== #
@@ -254,8 +254,8 @@ def ablation6_multiturn_depth():
             "de_high_security": "",
             "finding":        f"context_dependent_asr={m['context_dependent_asr']:.1f}%",
         })
-    except KeyError:
-        pass
+    except Exception as e:
+        print(f"  [Error] Ablation 6 failed: {e}")
 
 
 # =========================================================================== #
@@ -271,10 +271,17 @@ def main():
 
     # Load baseline latency from results if available
     try:
-        import pandas as pd
-        df = pd.read_csv(TABLES_DIR / "baseline_results.csv")
-        baseline_latency = float(df[df["defense_config"] == "a_basic_no_filters"]["latency_s"].values[0])
-    except Exception:
+        baseline_latency = 1.0
+        csv_path = TABLES_DIR / "baseline_results.csv"
+        if csv_path.exists():
+            with open(csv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get("defense_config") == "a_basic_no_filters":
+                        baseline_latency = float(row.get("latency_s", 1.0))
+                        break
+    except Exception as e:
+        print(f"[Warning] Failed to load baseline latency: {e}")
         baseline_latency = 1.0
 
     ablation1_nli_model_size(attacks, benign, judge, baseline_latency)

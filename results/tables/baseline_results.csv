@@ -1,0 +1,9 @@
+defense_config,asr_pct,asr_reduction_pct,latency_s,latency_overhead_pct,fpr_pct,fpr_stratum_a,fpr_stratum_b,fpr_stratum_c,de_high_security,de_balanced,de_high_frequency,de_regulatory_compliance
+a_basic_no_filters,2.67,0.0,7.2784,-0.0,0.0,0.0,0.0,0.0,0.731333,0.636667,0.789333,0.585333
+b_basic_input_regex_output_regex,4.67,-74.91,15.9181,118.7,5.35,5.52,5.66,0.0,0.714658,0.61864,0.759929,0.571658
+c_basic_input_guard_output_guard,4.67,-74.91,6.8344,-6.1,0.0,0.0,0.0,0.0,0.732583,0.648016,0.793533,0.598733
+d_safe_no_filters,2.33,12.73,4.468,-38.61,0.0,0.0,0.0,0.0,0.830198,0.773477,0.867892,0.741616
+e_safe_input_guard_no_output,1.67,37.45,4.8132,-33.87,0.0,0.0,0.0,0.0,0.823008,0.760212,0.861073,0.726313
+f_safe_input_guard_output_guard,1.0,62.55,9.3262,28.14,0.0,0.0,0.0,0.0,0.743,0.645,0.796,0.5945
+g_safe_input_regex_output_regex,1.67,37.45,4.3997,-39.55,3.34,2.76,4.72,0.0,0.83554,0.77508,0.859058,0.747367
+h_safe_both_input_output_guard,1.0,62.55,4.9719,-31.69,0.0,0.0,0.0,0.0,0.822224,0.755914,0.859379,0.721258

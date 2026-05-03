@@ -165,7 +165,7 @@ class RateLimiter:
                         f"{attempt}/{MAX_RETRIES}). Backing off {wait:.1f}s …"
                     )
                     time.sleep(wait)
-                    backoff  = min(backoff * BACKOFF_MULTIPLIER, MAX_BACKOFF_S)
+                    backoff  = min(backoff + 60.0, MAX_BACKOFF_S)
 
         raise last_exc  # type: ignore
 

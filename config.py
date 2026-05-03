@@ -65,27 +65,27 @@ PROVIDER_ENDPOINTS = {
     "groq":        "https://api.groq.com/openai/v1",
     "gemini":      "https://generativelanguage.googleapis.com/v1beta/openai/",
     "openrouter":  "https://openrouter.ai/api/v1",
-    "huggingface": "https://api-inference.huggingface.co/v1/",
+    "huggingface": "https://router.huggingface.co/v1",
 }
 
 # --------------------------------------------------------------------------- #
 #  Model assignments — all free tier
 # --------------------------------------------------------------------------- #
-# RAG generation: Groq has 14,400 RPD — highest budget for bulk generation
-BASE_LLM_PROVIDER    = os.getenv("BASE_LLM_PROVIDER",   "groq")
-BASE_LLM_MODEL       = os.getenv("BASE_LLM_MODEL",      "llama-3.1-8b-instant")
+# RAG generation
+BASE_LLM_PROVIDER    = os.getenv("BASE_LLM_PROVIDER",   "local")
+BASE_LLM_MODEL       = os.getenv("BASE_LLM_MODEL",      "Qwen/Qwen2.5-7B-Instruct")
 
-# Attacker LLM: also Groq (14,400 RPD shared pool — still sufficient)
-ATTACKER_LLM_PROVIDER = os.getenv("ATTACKER_LLM_PROVIDER", "groq")
-ATTACKER_LLM_MODEL    = os.getenv("ATTACKER_LLM_MODEL",    "llama-3.1-8b-instant")
+# Attacker LLM
+ATTACKER_LLM_PROVIDER = os.getenv("ATTACKER_LLM_PROVIDER", "local")
+ATTACKER_LLM_MODEL    = os.getenv("ATTACKER_LLM_MODEL",    "Qwen/Qwen2.5-7B-Instruct")
 
-# Judge LLM: Gemini Flash — better reasoning quality for evaluation
-JUDGE_LLM_PROVIDER   = os.getenv("JUDGE_LLM_PROVIDER",  "gemini")
-JUDGE_LLM_MODEL      = os.getenv("JUDGE_LLM_MODEL",     "gemini-2.0-flash")
+# Judge LLM
+JUDGE_LLM_PROVIDER   = os.getenv("JUDGE_LLM_PROVIDER",  "local")
+JUDGE_LLM_MODEL      = os.getenv("JUDGE_LLM_MODEL",     "Qwen/Qwen2.5-7B-Instruct")
 
-# Filter LLM: Gemini Flash (used only once during data setup, ~300 calls total)
-FILTER_LLM_PROVIDER  = os.getenv("FILTER_LLM_PROVIDER", "gemini")
-FILTER_LLM_MODEL     = os.getenv("FILTER_LLM_MODEL",    "gemini-2.0-flash")
+# Filter LLM
+FILTER_LLM_PROVIDER  = os.getenv("FILTER_LLM_PROVIDER", "local")
+FILTER_LLM_MODEL     = os.getenv("FILTER_LLM_MODEL",    "Qwen/Qwen2.5-7B-Instruct")
 
 # Fallback provider (OpenRouter) — used if primary hits daily limit
 FALLBACK_LLM_PROVIDER = "openrouter"
@@ -106,10 +106,10 @@ RATE_LIMITS = {
 #  Retry configuration
 # --------------------------------------------------------------------------- #
 MAX_RETRIES          = 5         # max attempts per call before giving up
-INITIAL_BACKOFF_S    = 2.0       # first retry wait (seconds)
-BACKOFF_MULTIPLIER   = 2.0       # exponential factor
-MAX_BACKOFF_S        = 120.0     # cap (2 minutes)
-JITTER_FRACTION      = 0.2       # ± 20% random jitter to avoid thundering herd
+INITIAL_BACKOFF_S    = 60.0      # first retry wait (1 minute)
+BACKOFF_MULTIPLIER   = 2.0       # (unused, replaced by linear increment)
+MAX_BACKOFF_S        = 300.0     # cap (5 minutes)
+JITTER_FRACTION      = 0.05      # ± 5% random jitter to avoid thundering herd
 
 # --------------------------------------------------------------------------- #
 #  Unit 1 — NLI Guardrail (LOCAL — no API cost)
@@ -121,7 +121,7 @@ NLI_THRESHOLD        = 0.7       # updated by ablation 2 (Section 13.2)
 #  Unit 2 — Retrieval Defense (LOCAL — no API cost)
 # --------------------------------------------------------------------------- #
 RETRIEVAL_ANOMALY_MULTIPLIER = 2.5    # updated by ablation 3
-GROUNDING_THRESHOLD          = 0.35   # updated after calibration Step 4
+GROUNDING_THRESHOLD          = 0.102   # calibrated   # updated after calibration Step 4
 
 # --------------------------------------------------------------------------- #
 #  Unit 3 — Adaptive Attack
@@ -132,7 +132,7 @@ ADAPTIVE_SAMPLE_SIZE    = 50    # reduced from 100 to fit free daily limits
 # --------------------------------------------------------------------------- #
 #  Unit 4 — Multi-Turn
 # --------------------------------------------------------------------------- #
-MULTITURN_SAMPLE_SIZE   = 30    # reduced from 50 to fit free daily limits
+MULTITURN_SAMPLE_SIZE   = 50    # reduced from 50 to fit free daily limits
 MULTITURN_DEPTH         = 3
 
 # --------------------------------------------------------------------------- #

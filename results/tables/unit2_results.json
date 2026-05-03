@@ -1,0 +1,7 @@
+{
+  "integrity_checker": {
+    "recall_pct": 100.0,
+    "fpr_pct": 100.0
+  },
+  "grounding_threshold_calibrated": 0.10195681937038899
+}

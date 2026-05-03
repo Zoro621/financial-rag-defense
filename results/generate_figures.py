@@ -251,7 +251,7 @@ def figure6_nli_heatmap():
         return
 
     df = pd.read_csv(ablation_path)
-    abl2 = df[df["ablation_id"] == "2"].copy()
+    abl2 = df[df["ablation_id"].astype(str) == "2"].copy()
     if abl2.empty:
         print("Figure 6: Ablation 2 rows not found — skipping")
         return
