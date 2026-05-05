@@ -124,20 +124,45 @@ class LLMWrapper:
     def _init_local(self, hf_token):
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import torch
-        
+
         if LLMWrapper._GLOBAL_LOCAL_MODEL is None:
-            # Using the 1.5B model which naturally fits in 6GB VRAM
-            # without requiring tricky Windows quantization libraries!
-            model_name = "Qwen/Qwen2.5-1.5B-Instruct"
-            
-            LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(model_name, token=hf_token)
-            LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                device_map="cuda",
-                torch_dtype=torch.float16,
-                token=hf_token
-            )
-        
+            # Auto-select model based on available VRAM and bitsandbytes support.
+            # On Kaggle T4 (16GB):  bitsandbytes is available → 7B 4-bit (~3.5 GB VRAM).
+            # On Windows local GPU: bitsandbytes crashes → fallback to 1.5B FP16.
+            try:
+                from transformers import BitsAndBytesConfig
+                import bitsandbytes  # noqa: F401 — presence check only
+                model_name = "Qwen/Qwen2.5-7B-Instruct"
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_use_double_quant=True,
+                )
+                print(f"[LLM] bitsandbytes detected — loading {model_name} in 4-bit NF4")
+                LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
+                    model_name, token=hf_token
+                )
+                LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    quantization_config=bnb_config,
+                    device_map="cuda",
+                    token=hf_token,
+                )
+            except (ImportError, Exception) as e:
+                # bitsandbytes unavailable (Windows) — fall back to 1.5B FP16
+                model_name = "Qwen/Qwen2.5-1.5B-Instruct"
+                print(f"[LLM] bitsandbytes unavailable ({e}) — falling back to {model_name} FP16")
+                LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
+                    model_name, token=hf_token
+                )
+                LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    device_map="cuda",
+                    torch_dtype=torch.float16,
+                    token=hf_token,
+                )
+
         self.tokenizer = LLMWrapper._GLOBAL_LOCAL_TOKENIZER
         self.model = LLMWrapper._GLOBAL_LOCAL_MODEL
 
