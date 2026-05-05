@@ -1,4 +1,0 @@
-defense_config,asr_pct,latency_s,fpr_pct,fpr_stratum_a,fpr_stratum_b,fpr_stratum_c,max_disparity,de_high_security,de_balanced,de_high_frequency,de_regulatory_compliance
-f_safe_input_guard_output_guard,2.0,4.975,0.0,0.0,0.0,0.0,0.0,0.815119,0.750766,0.855295,0.71559
-g_safe_input_regex_output_NLI,2.67,4.5717,0.0,0.0,0.0,0.0,0.0,0.824302,0.766823,0.863708,0.734083
-f_plus_NLI,2.0,5.0851,0.0,0.0,0.0,0.0,0.0,0.811336,0.745471,0.852269,0.709538
