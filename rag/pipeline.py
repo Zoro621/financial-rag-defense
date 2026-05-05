@@ -149,23 +149,15 @@ class LLMWrapper:
                     bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_use_double_quant=True,
                 )
-                # Use flash_attention_2 if installed, else sdpa (PyTorch built-in)
-                try:
-                    import flash_attn  # noqa: F401
-                    attn_impl = "flash_attention_2"
-                except ImportError:
-                    attn_impl = "sdpa"
-                n_gpus = torch.cuda.device_count()
-                print(f"[LLM] Loading {model_name} 4-bit NF4 | {attn_impl} | {n_gpus} GPU(s)")
+                print(f"[LLM] Loading {model_name} 4-bit NF4 on cuda:0")
                 LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
                     model_name, token=hf_token
                 )
                 LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
                     model_name,
                     quantization_config=bnb_config,
-                    device_map="auto",
+                    device_map="cuda:0",
                     token=hf_token,
-                    attn_implementation=attn_impl,
                 )
             else:
                 # ---- Windows fallback: 1.5B FP16 (no flash attn, no bnb) ----
