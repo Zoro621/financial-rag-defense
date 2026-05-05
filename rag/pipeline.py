@@ -124,42 +124,45 @@ class LLMWrapper:
     def _init_local(self, hf_token):
         from transformers import AutoModelForCausalLM, AutoTokenizer
         import torch
+        import platform
 
         if LLMWrapper._GLOBAL_LOCAL_MODEL is None:
-            # Auto-select model based on available VRAM and bitsandbytes support.
-            # On Kaggle T4 (16GB):  bitsandbytes is available -> 7B 4-bit (~3.5 GB VRAM).
-            # On Windows local GPU: bitsandbytes crashes -> fallback to 1.5B FP16.
+            is_linux = platform.system() == "Linux"
+
+            # ---- Kaggle / Linux: 3B 4-bit + Flash Attention 2 + dual GPU ----
             bnb_ok = False
-            try:
-                from transformers import BitsAndBytesConfig
-                import bitsandbytes as _bnb  # noqa: F401
-                # Verify bitsandbytes actually has CUDA support (Kaggle may have a broken install)
-                if hasattr(_bnb, 'COMPILED_WITH_CUDA') and not _bnb.COMPILED_WITH_CUDA:
-                    raise ImportError("bitsandbytes installed without CUDA support")
-                bnb_ok = True
-            except (ImportError, ModuleNotFoundError, Exception) as e:
-                print(f"[LLM] bitsandbytes unavailable ({e})")
+            if is_linux:
+                try:
+                    from transformers import BitsAndBytesConfig
+                    import bitsandbytes as _bnb  # noqa: F401
+                    if hasattr(_bnb, 'COMPILED_WITH_CUDA') and not _bnb.COMPILED_WITH_CUDA:
+                        raise ImportError("bitsandbytes installed without CUDA support")
+                    bnb_ok = True
+                except (ImportError, ModuleNotFoundError, Exception) as e:
+                    print(f"[LLM] bitsandbytes unavailable ({e})")
 
             if bnb_ok:
-                model_name = "Qwen/Qwen2.5-7B-Instruct"
+                model_name = "Qwen/Qwen2.5-3B-Instruct"
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
                     bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_use_double_quant=True,
                 )
-                print(f"[LLM] bitsandbytes detected -- loading {model_name} in 4-bit NF4")
+                n_gpus = torch.cuda.device_count()
+                print(f"[LLM] Loading {model_name} 4-bit NF4 | flash_attention_2 | {n_gpus} GPU(s)")
                 LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
                     model_name, token=hf_token
                 )
                 LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
                     model_name,
                     quantization_config=bnb_config,
-                    device_map="cuda",
+                    device_map="auto",
                     token=hf_token,
+                    attn_implementation="flash_attention_2",
                 )
             else:
-                # bitsandbytes unavailable -- fall back to 1.5B FP16
+                # ---- Windows fallback: 1.5B FP16 (no flash attn, no bnb) ----
                 model_name = "Qwen/Qwen2.5-1.5B-Instruct"
                 print(f"[LLM] Falling back to {model_name} FP16")
                 LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
@@ -167,7 +170,7 @@ class LLMWrapper:
                 )
                 LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
                     model_name,
-                    device_map="cuda",
+                    device_map="auto",
                     torch_dtype=torch.float16,
                     token=hf_token,
                 )
