@@ -4,6 +4,10 @@ Builds and manages the FAISS vector index over knowledge-base chunks.
 Saves embedding centroids (needed by Unit 2 Retrieval Integrity Checker).
 """
 
+import os
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 import pickle
 from pathlib import Path
 from typing import List, Tuple
@@ -57,7 +61,7 @@ class VectorStore:
         Build FAISS index from a list of LangChain Document chunks.
         Also computes and saves centroid + per-dim std for Unit 2.
         """
-        print(f"[VectorStore] Embedding {len(chunks)} chunks …")
+        print(f"[VectorStore] Embedding {len(chunks)} chunks ...")
         texts    = [c.page_content for c in chunks]
         vectors  = np.array(
             self.embeddings.embed_documents(texts), dtype=np.float32
@@ -76,13 +80,13 @@ class VectorStore:
         self.kb_stats_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.kb_stats_path, "wb") as f:
             pickle.dump(kb_stats, f)
-        print(f"[VectorStore] Saved kb_stats → {self.kb_stats_path}")
+        print(f"[VectorStore] Saved kb_stats -> {self.kb_stats_path}")
 
         # ---- Build FAISS index ---------------------------------------- #
         self._faiss = FAISS.from_documents(chunks, self.embeddings)
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self._faiss.save_local(str(self.index_dir))
-        print(f"[VectorStore] Saved FAISS index → {self.index_dir}")
+        print(f"[VectorStore] Saved FAISS index -> {self.index_dir}")
 
     # ------------------------------------------------------------------ #
     def load(self) -> None:

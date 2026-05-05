@@ -20,7 +20,7 @@ from config import (
 )
 
 
-SUPPORTED_EXTENSIONS = {".txt", ".md", ".csv"}
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".csv", ".pdf"}
 
 
 class DocumentLoader:
@@ -45,6 +45,24 @@ class DocumentLoader:
         )
 
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _read_file(fpath: Path) -> str:
+        """Read a file to string, with PDF extraction support via pypdf."""
+        if fpath.suffix.lower() == ".pdf":
+            try:
+                import pypdf
+                reader = pypdf.PdfReader(str(fpath))
+                pages = [page.extract_text() or "" for page in reader.pages]
+                return "\n\n".join(p for p in pages if p.strip())
+            except ImportError:
+                raise ImportError(
+                    "pypdf is required to load PDF files. "
+                    "Install it with: pip install pypdf"
+                )
+        else:
+            return fpath.read_text(encoding="utf-8", errors="replace")
+
+    # ------------------------------------------------------------------ #
     def load_raw_documents(self) -> List[Document]:
         """Read all supported files from raw_docs_dir into LangChain Documents."""
         docs: List[Document] = []
@@ -53,9 +71,13 @@ class DocumentLoader:
             if fpath.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
             try:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
+                text = self._read_file(fpath)
             except Exception as e:
-                print(f"[WARN] Could not read {fpath}: {e}")
+                print(f"[WARN] Could not read {fpath.name}: {e}")
+                continue
+
+            if not text.strip():
+                print(f"[WARN] Skipping empty file: {fpath.name}")
                 continue
 
             docs.append(
@@ -80,7 +102,7 @@ class DocumentLoader:
         self.chunks_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.chunks_path, "wb") as f:
             pickle.dump(chunks, f)
-        print(f"[DocumentLoader] Saved chunks → {self.chunks_path}")
+        print(f"[DocumentLoader] Saved chunks -> {self.chunks_path}")
 
     # ------------------------------------------------------------------ #
     @staticmethod

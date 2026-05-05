@@ -64,23 +64,25 @@ os.chdir("/kaggle/working/financial-rag-defense")
 
 ### Step 3: Install Dependencies
 ```python
+# DO NOT re-install torch/numpy/pandas — Kaggle's pre-compiled CUDA versions must stay.
+# Only install packages that are missing or need specific versions.
 !pip install -q \
-    sentence-transformers \
-    langchain \
-    langchain-community \
-    faiss-gpu \
-    openai \
-    bitsandbytes \
-    accelerate \
-    tqdm \
-    numpy \
-    matplotlib \
-    seaborn
+    langchain==0.3.7 \
+    langchain-community==0.3.7 \
+    langchain-huggingface==0.1.2 \
+    sentence-transformers==3.2.1 \
+    bitsandbytes==0.44.1 \
+    accelerate==1.0.1 \
+    openai==1.54.4 \
+    "httpx<0.28.0" \
+    textstat==0.7.3 \
+    faiss-gpu            # ← GPU version (replaces faiss-cpu from requirements.txt)
 ```
 
-> **Note:** `bitsandbytes` is the key new package — this is what enables 4-bit quantization
-> on the T4. It is not needed locally on Windows because it was causing crashes, but it
-> works perfectly on Kaggle's Linux environment.
+> **Why not pin torch/numpy/pandas?**
+> Kaggle's Docker image ships PyTorch pre-compiled against the exact T4 CUDA driver version.
+> If you reinstall e.g. `torch==2.4.1`, pip may pull a CPU-only wheel or a CUDA-incompatible
+> build. Leave them at Kaggle's defaults — they are always recent enough for this codebase.
 
 ---
 
