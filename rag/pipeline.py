@@ -127,11 +127,9 @@ class LLMWrapper:
         import platform
 
         if LLMWrapper._GLOBAL_LOCAL_MODEL is None:
-            is_linux = platform.system() == "Linux"
-
-            # ---- Kaggle / Linux: 3B 4-bit + Flash Attention 2 + dual GPU ----
+            model_name = "Qwen/Qwen2.5-1.5B-Instruct"
             bnb_ok = False
-            if is_linux:
+            if platform.system() == "Linux":
                 try:
                     from transformers import BitsAndBytesConfig
                     import bitsandbytes as _bnb  # noqa: F401
@@ -141,18 +139,17 @@ class LLMWrapper:
                 except (ImportError, ModuleNotFoundError, Exception) as e:
                     print(f"[LLM] bitsandbytes unavailable ({e})")
 
+            LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
+                model_name, token=hf_token
+            )
             if bnb_ok:
-                model_name = "Qwen/Qwen2.5-3B-Instruct"
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
                     bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_use_double_quant=True,
                 )
-                print(f"[LLM] Loading {model_name} 4-bit NF4 on cuda:0")
-                LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
-                    model_name, token=hf_token
-                )
+                print(f"[LLM] Loading {model_name} 4-bit NF4")
                 LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
                     model_name,
                     quantization_config=bnb_config,
@@ -160,12 +157,7 @@ class LLMWrapper:
                     token=hf_token,
                 )
             else:
-                # ---- Windows fallback: 1.5B FP16 (no flash attn, no bnb) ----
-                model_name = "Qwen/Qwen2.5-1.5B-Instruct"
-                print(f"[LLM] Falling back to {model_name} FP16")
-                LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
-                    model_name, token=hf_token
-                )
+                print(f"[LLM] Loading {model_name} FP16")
                 LLMWrapper._GLOBAL_LOCAL_MODEL = AutoModelForCausalLM.from_pretrained(
                     model_name,
                     device_map="auto",
@@ -238,25 +230,21 @@ class LLMWrapper:
 
     def _generate_local(self, prompt: str, max_tokens: int) -> str:
         messages = [
-            {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
             {"role": "user", "content": prompt}
         ]
-        text = self.tokenizer.apply_chat_template(
+        inputs = self.tokenizer.apply_chat_template(
             messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(self.model.device)
 
-        generated_ids = self.model.generate(
-            **model_inputs,
-            max_new_tokens=max_tokens
+        outputs = self.model.generate(**inputs, max_new_tokens=max_tokens)
+        return self.tokenizer.decode(
+            outputs[0][inputs["input_ids"].shape[-1]:],
+            skip_special_tokens=True,
         )
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-        ]
-
-        return self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
 
     def rate_limiter_status(self) -> dict:
         """Return current rate limiter counters for monitoring."""

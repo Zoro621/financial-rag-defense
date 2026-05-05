@@ -73,19 +73,19 @@ PROVIDER_ENDPOINTS = {
 # --------------------------------------------------------------------------- #
 # RAG generation
 BASE_LLM_PROVIDER    = os.getenv("BASE_LLM_PROVIDER",   "local")
-BASE_LLM_MODEL       = os.getenv("BASE_LLM_MODEL",      "Qwen/Qwen2.5-3B-Instruct")
+BASE_LLM_MODEL       = os.getenv("BASE_LLM_MODEL",      "Qwen/Qwen2.5-1.5B-Instruct")
 
 # Attacker LLM
 ATTACKER_LLM_PROVIDER = os.getenv("ATTACKER_LLM_PROVIDER", "local")
-ATTACKER_LLM_MODEL    = os.getenv("ATTACKER_LLM_MODEL",    "Qwen/Qwen2.5-3B-Instruct")
+ATTACKER_LLM_MODEL    = os.getenv("ATTACKER_LLM_MODEL",    "Qwen/Qwen2.5-1.5B-Instruct")
 
 # Judge LLM
 JUDGE_LLM_PROVIDER   = os.getenv("JUDGE_LLM_PROVIDER",  "local")
-JUDGE_LLM_MODEL      = os.getenv("JUDGE_LLM_MODEL",     "Qwen/Qwen2.5-3B-Instruct")
+JUDGE_LLM_MODEL      = os.getenv("JUDGE_LLM_MODEL",     "Qwen/Qwen2.5-1.5B-Instruct")
 
 # Filter LLM
 FILTER_LLM_PROVIDER  = os.getenv("FILTER_LLM_PROVIDER", "local")
-FILTER_LLM_MODEL     = os.getenv("FILTER_LLM_MODEL",    "Qwen/Qwen2.5-3B-Instruct")
+FILTER_LLM_MODEL     = os.getenv("FILTER_LLM_MODEL",    "Qwen/Qwen2.5-1.5B-Instruct")
 
 # Fallback provider (OpenRouter) — used if primary hits daily limit
 FALLBACK_LLM_PROVIDER = "openrouter"
