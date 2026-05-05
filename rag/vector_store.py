@@ -5,8 +5,10 @@ Saves embedding centroids (needed by Unit 2 Retrieval Integrity Checker).
 """
 
 import os
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+import platform
+if platform.system() == "Windows":
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 import pickle
 from pathlib import Path

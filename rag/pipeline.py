@@ -127,11 +127,20 @@ class LLMWrapper:
 
         if LLMWrapper._GLOBAL_LOCAL_MODEL is None:
             # Auto-select model based on available VRAM and bitsandbytes support.
-            # On Kaggle T4 (16GB):  bitsandbytes is available → 7B 4-bit (~3.5 GB VRAM).
-            # On Windows local GPU: bitsandbytes crashes → fallback to 1.5B FP16.
+            # On Kaggle T4 (16GB):  bitsandbytes is available -> 7B 4-bit (~3.5 GB VRAM).
+            # On Windows local GPU: bitsandbytes crashes -> fallback to 1.5B FP16.
+            bnb_ok = False
             try:
                 from transformers import BitsAndBytesConfig
-                import bitsandbytes  # noqa: F401 — presence check only
+                import bitsandbytes as _bnb  # noqa: F401
+                # Verify bitsandbytes actually has CUDA support (Kaggle may have a broken install)
+                if hasattr(_bnb, 'COMPILED_WITH_CUDA') and not _bnb.COMPILED_WITH_CUDA:
+                    raise ImportError("bitsandbytes installed without CUDA support")
+                bnb_ok = True
+            except (ImportError, ModuleNotFoundError, Exception) as e:
+                print(f"[LLM] bitsandbytes unavailable ({e})")
+
+            if bnb_ok:
                 model_name = "Qwen/Qwen2.5-7B-Instruct"
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
@@ -139,7 +148,7 @@ class LLMWrapper:
                     bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_use_double_quant=True,
                 )
-                print(f"[LLM] bitsandbytes detected — loading {model_name} in 4-bit NF4")
+                print(f"[LLM] bitsandbytes detected -- loading {model_name} in 4-bit NF4")
                 LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
                     model_name, token=hf_token
                 )
@@ -149,10 +158,10 @@ class LLMWrapper:
                     device_map="cuda",
                     token=hf_token,
                 )
-            except (ImportError, Exception) as e:
-                # bitsandbytes unavailable (Windows) — fall back to 1.5B FP16
+            else:
+                # bitsandbytes unavailable -- fall back to 1.5B FP16
                 model_name = "Qwen/Qwen2.5-1.5B-Instruct"
-                print(f"[LLM] bitsandbytes unavailable ({e}) — falling back to {model_name} FP16")
+                print(f"[LLM] Falling back to {model_name} FP16")
                 LLMWrapper._GLOBAL_LOCAL_TOKENIZER = AutoTokenizer.from_pretrained(
                     model_name, token=hf_token
                 )

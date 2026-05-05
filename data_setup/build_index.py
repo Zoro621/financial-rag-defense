@@ -8,8 +8,15 @@ Usage:
     python data_setup/build_index.py
 """
 
+import os
 import sys
+import platform
 from pathlib import Path
+
+if platform.system() == "Windows":
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import CHUNKS_PKL_PATH
@@ -22,10 +29,10 @@ if __name__ == "__main__":
 
     # Load or create chunks
     if CHUNKS_PKL_PATH.exists():
-        print(f"Loading existing chunks from {CHUNKS_PKL_PATH} …")
+        print(f"Loading existing chunks from {CHUNKS_PKL_PATH} ...")
         chunks = DocumentLoader.load_chunks()
     else:
-        print("Chunks not found — running DocumentLoader …")
+        print("Chunks not found -- running DocumentLoader ...")
         loader = DocumentLoader()
         chunks = loader.run()
 
@@ -33,7 +40,7 @@ if __name__ == "__main__":
     vs = VectorStore()
     vs.build(chunks)
 
-    print("\n✅ Index build complete.")
+    print("\n[OK] Index build complete.")
     print(f"   Chunks:   {len(chunks)}")
     print(f"   Index:    {vs.index_dir}")
     print(f"   KB stats: {vs.kb_stats_path}")
