@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    ATTACKS_PATH, BENIGN_PATH, TABLES_DIR, LOGS_DIR,
+    ATTACKS_PATH, BENIGN_PATH, TABLES_DIR, LOGS_DIR, RESULTS_DIR,
     NLI_MODEL, EMBEDDING_MODEL,
 )
 from rag.pipeline import FinancialRAGPipeline, LLMWrapper
@@ -34,6 +34,26 @@ from evaluation.asr_judge import ASRJudge
 from evaluation.latency_tracker import LatencyTracker
 
 ABLATION_ROWS = []
+
+
+def _load_checkpoint(checkpoint_path):
+    """Load completed ablation rows from checkpoint JSONL."""
+    if not checkpoint_path.exists():
+        return []
+    with open(checkpoint_path) as f:
+        return [json.loads(l) for l in f]
+
+
+def _save_row(checkpoint_path, row):
+    """Append a single ablation row to the checkpoint JSONL."""
+    with open(checkpoint_path, "a") as f:
+        f.write(json.dumps(row) + "\n")
+        f.flush()
+
+
+def _is_done(completed, ablation_id, value):
+    """Check if a specific ablation_id + value combo is already in checkpoint."""
+    return any(c["ablation_id"] == ablation_id and c["value"] == value for c in completed)
 
 BASE_CONFIG = {
     "prompt_type": "safe", "input_regex": False, "input_prompt_guard": True,
@@ -89,7 +109,7 @@ def evaluate_nli_guardrail(nli_model_name, threshold, attacks, benign, judge, ba
 # =========================================================================== #
 #  Ablation 1 — NLI Model Size
 # =========================================================================== #
-def ablation1_nli_model_size(attacks, benign, judge, baseline_latency):
+def ablation1_nli_model_size(attacks, benign, judge, baseline_latency, ckpt_path, completed):
     print("\n=== Ablation 1: NLI Model Size ===")
     models = [
         "cross-encoder/nli-MiniLM2-L6-H768",
@@ -97,20 +117,26 @@ def ablation1_nli_model_size(attacks, benign, judge, baseline_latency):
         "cross-encoder/nli-deberta-v3-large",
     ]
     for model_name in models:
-        print(f"  Testing {model_name} …")
+        short_name = model_name.split("/")[-1]
+        if _is_done(completed, "1", short_name):
+            print(f"  [Resume] Skipping {model_name} (already done)")
+            continue
+        print(f"  Testing {model_name} ...")
         try:
             m = evaluate_nli_guardrail(model_name, 0.7, attacks, benign, judge, baseline_latency)
-            ABLATION_ROWS.append({
+            row = {
                 "ablation_id":    "1",
                 "component":      "NLI Guardrail",
                 "variable":       "model_name",
-                "value":          model_name.split("/")[-1],
+                "value":          short_name,
                 "asr_pct":        m["asr_pct"],
                 "fpr_pct":        m["fpr_pct"],
                 "latency_s":      m["latency_s"],
                 "de_high_security": "",
                 "finding":        f"FPR={m['fpr_pct']}%, lat={m['latency_s']:.3f}s",
-            })
+            }
+            ABLATION_ROWS.append(row)
+            _save_row(ckpt_path, row)
         except Exception as e:
             print(f"  SKIP {model_name}: {e}")
 
@@ -118,33 +144,43 @@ def ablation1_nli_model_size(attacks, benign, judge, baseline_latency):
 # =========================================================================== #
 #  Ablation 2 — NLI Threshold
 # =========================================================================== #
-def ablation2_nli_threshold(attacks, benign, judge, baseline_latency):
+def ablation2_nli_threshold(attacks, benign, judge, baseline_latency, ckpt_path, completed):
     print("\n=== Ablation 2: NLI Threshold ===")
     for threshold in [0.5, 0.6, 0.7, 0.8, 0.9]:
+        val = str(threshold)
+        if _is_done(completed, "2", val):
+            print(f"  [Resume] Skipping threshold={threshold} (already done)")
+            continue
         print(f"  threshold={threshold}")
         m = evaluate_nli_guardrail(NLI_MODEL, threshold, attacks, benign, judge, baseline_latency)
-        ABLATION_ROWS.append({
+        row = {
             "ablation_id":    "2",
             "component":      "NLI Guardrail",
             "variable":       "threshold",
-            "value":          str(threshold),
+            "value":          val,
             "asr_pct":        m["asr_pct"],
             "fpr_pct":        m["fpr_pct"],
             "latency_s":      m["latency_s"],
             "de_high_security": "",
             "finding":        f"FPR={m['fpr_pct']}%, ASR={m['asr_pct']}%",
-        })
+        }
+        ABLATION_ROWS.append(row)
+        _save_row(ckpt_path, row)
 
 
 # =========================================================================== #
 #  Ablation 3 — Grounding Threshold
 # =========================================================================== #
-def ablation3_grounding_threshold(attacks, benign, judge, baseline_latency):
+def ablation3_grounding_threshold(attacks, benign, judge, baseline_latency, ckpt_path, completed):
     print("\n=== Ablation 3: Grounding Threshold ===")
     from sentence_transformers import SentenceTransformer
     emb_model = SentenceTransformer(EMBEDDING_MODEL)
 
     for threshold in [0.25, 0.30, 0.35, 0.40, 0.45]:
+        val = str(threshold)
+        if _is_done(completed, "3", val):
+            print(f"  [Resume] Skipping threshold={threshold} (already done)")
+            continue
         verifier = ResponseGroundingVerifier(emb_model, threshold=threshold)
         fpr_blocked = 0
 
@@ -161,17 +197,19 @@ def ablation3_grounding_threshold(attacks, benign, judge, baseline_latency):
         fpr_pct = fpr_blocked / 50 * 100
         print(f"  threshold={threshold}: FPR={fpr_pct:.1f}%")
 
-        ABLATION_ROWS.append({
+        row = {
             "ablation_id":    "3",
             "component":      "Grounding Verifier",
             "variable":       "threshold",
-            "value":          str(threshold),
+            "value":          val,
             "asr_pct":        "",
             "fpr_pct":        round(fpr_pct, 2),
             "latency_s":      "",
             "de_high_security": "",
             "finding":        f"FPR on benign={fpr_pct:.1f}%",
-        })
+        }
+        ABLATION_ROWS.append(row)
+        _save_row(ckpt_path, row)
 
 
 # =========================================================================== #
@@ -264,14 +302,21 @@ def ablation6_multiturn_depth():
 def main():
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = RESULTS_DIR / "checkpoints" / "run_ablation"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_path = checkpoint_dir / "ablation_rows.jsonl"
+
+    # Load any previously completed ablation rows
+    completed = _load_checkpoint(ckpt_path)
+    ABLATION_ROWS.extend(completed)
 
     attacks = load_jsonl(ATTACKS_PATH)
     benign  = load_jsonl(BENIGN_PATH)
     judge   = ASRJudge()
 
     # Load baseline latency from results if available
+    baseline_latency = 1.0
     try:
-        baseline_latency = 1.0
         csv_path = TABLES_DIR / "baseline_results.csv"
         if csv_path.exists():
             with open(csv_path, "r", encoding="utf-8") as f:
@@ -280,17 +325,16 @@ def main():
                     if row.get("defense_config") == "a_basic_no_filters":
                         baseline_latency = float(row.get("latency_s", 1.0))
                         break
-    except Exception as e:
-        print(f"[Warning] Failed to load baseline latency: {e}")
-        baseline_latency = 1.0
+    except Exception:
+        pass
 
-    ablation1_nli_model_size(attacks, benign, judge, baseline_latency)
-    ablation2_nli_threshold(attacks, benign, judge, baseline_latency)
-    ablation3_grounding_threshold(attacks, benign, judge, baseline_latency)
+    ablation1_nli_model_size(attacks, benign, judge, baseline_latency, ckpt_path, completed)
+    ablation2_nli_threshold(attacks, benign, judge, baseline_latency, ckpt_path, completed)
+    ablation3_grounding_threshold(attacks, benign, judge, baseline_latency, ckpt_path, completed)
     ablations_4_5_from_unit3()
     ablation6_multiturn_depth()
 
-    # Save
+    # Save final CSV
     csv_path = TABLES_DIR / "ablation_summary.csv"
     fieldnames = ["ablation_id", "component", "variable", "value",
                   "asr_pct", "fpr_pct", "latency_s", "de_high_security", "finding"]
@@ -299,7 +343,7 @@ def main():
         writer.writeheader()
         writer.writerows(ABLATION_ROWS)
 
-    print(f"\n✅ Ablation summary saved → {csv_path}")
+    print(f"\n[OK] Ablation summary saved -> {csv_path}")
 
 
 if __name__ == "__main__":

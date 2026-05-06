@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    ATTACKS_PATH, BENIGN_PATH, TABLES_DIR, FAISS_INDEX_DIR,
+    ATTACKS_PATH, BENIGN_PATH, TABLES_DIR, RESULTS_DIR, FAISS_INDEX_DIR,
     KB_STATS_PATH, CHUNKS_PKL_PATH, EMBEDDING_MODEL, GROUNDING_THRESHOLD,
     N_POISONED_DOCS, N_POISONED_ATTACK_PROMPTS,
 )
@@ -99,7 +99,8 @@ def generate_poisoned_prompts() -> list[dict]:
 # =========================================================================== #
 #  Step 3-4: Evaluate integrity checker
 # =========================================================================== #
-def evaluate_integrity_checker(poisoned_index_dir: Path, attacks: list, benign: list):
+def evaluate_integrity_checker(poisoned_index_dir: Path, attacks: list, benign: list,
+                               checkpoint_dir: Path):
     checker = RetrievalIntegrityChecker(KB_STATS_PATH)
     vs      = VectorStore(index_dir=poisoned_index_dir)
     vs.load()
@@ -107,26 +108,43 @@ def evaluate_integrity_checker(poisoned_index_dir: Path, attacks: list, benign: 
     poisoned_prompts = generate_poisoned_prompts()
 
     # --- Recall on poisoned prompts (should be flagged) ---
-    n_flagged = 0
-    for atk in tqdm(poisoned_prompts, desc="  Integrity check — poisoned prompts"):
-        _, embs = vs.retrieve(atk["prompt"])
-        result  = checker.check([""] * embs.shape[0], embs)
-        if not result["integrity_ok"]:
-            n_flagged += 1
+    poison_ckpt = checkpoint_dir / "integrity_poisoned.jsonl"
+    completed_poison = load_jsonl(poison_ckpt) if poison_ckpt.exists() else []
+    n_flagged = sum(1 for c in completed_poison if c["flagged"])
+    remaining_poison = poisoned_prompts[len(completed_poison):]
+
+    with open(poison_ckpt, "a") as f:
+        for atk in tqdm(remaining_poison, desc="  Integrity check -- poisoned prompts"):
+            _, embs = vs.retrieve(atk["prompt"])
+            result  = checker.check([""] * embs.shape[0], embs)
+            flagged = not result["integrity_ok"]
+            if flagged:
+                n_flagged += 1
+            f.write(json.dumps({"prompt": atk["prompt"], "flagged": flagged}) + "\n")
+            f.flush()
 
     recall_pct = n_flagged / max(len(poisoned_prompts), 1) * 100
 
     # --- FPR on benign queries (should NOT be flagged) ---
     clean_vs = VectorStore()
     clean_vs.load()
-    n_false_flags = 0
-    for q in tqdm(benign[:100], desc="  Integrity check — benign queries"):
-        _, embs = clean_vs.retrieve(q["query"])
-        result  = checker.check([""] * embs.shape[0], embs)
-        if not result["integrity_ok"]:
-            n_false_flags += 1
+    benign_ckpt = checkpoint_dir / "integrity_benign.jsonl"
+    completed_benign = load_jsonl(benign_ckpt) if benign_ckpt.exists() else []
+    n_false_flags = sum(1 for c in completed_benign if c["flagged"])
+    benign_sample = benign[:100]
+    remaining_benign = benign_sample[len(completed_benign):]
 
-    fpr_pct = n_false_flags / 100 * 100
+    with open(benign_ckpt, "a") as f:
+        for q in tqdm(remaining_benign, desc="  Integrity check -- benign queries"):
+            _, embs = clean_vs.retrieve(q["query"])
+            result  = checker.check([""] * embs.shape[0], embs)
+            flagged = not result["integrity_ok"]
+            if flagged:
+                n_false_flags += 1
+            f.write(json.dumps({"query": q["query"], "flagged": flagged}) + "\n")
+            f.flush()
+
+    fpr_pct = n_false_flags / max(len(benign_sample), 1) * 100
 
     print(f"\n  Integrity Checker Recall (poisoned): {recall_pct:.1f}%")
     print(f"  Integrity Checker FPR   (benign):   {fpr_pct:.1f}%")
@@ -137,7 +155,7 @@ def evaluate_integrity_checker(poisoned_index_dir: Path, attacks: list, benign: 
 # =========================================================================== #
 #  Steps 6-7: Grounding verifier calibration
 # =========================================================================== #
-def calibrate_grounding_verifier(benign: list) -> float:
+def calibrate_grounding_verifier(benign: list, checkpoint_dir: Path) -> float:
     """
     Run grounding verifier on 50 known-safe RAG responses.
     Set threshold at 5th percentile of max_similarity distribution.
@@ -150,14 +168,23 @@ def calibrate_grounding_verifier(benign: list) -> float:
     llm      = LLMWrapper()
     pipeline = FinancialRAGPipeline({"prompt_type": "basic"}, llm=llm)
 
-    similarities = []
-    sample = benign[:50]
+    cal_ckpt = checkpoint_dir / "grounding_calibration.jsonl"
+    completed = load_jsonl(cal_ckpt) if cal_ckpt.exists() else []
+    similarities = [c["max_similarity"] for c in completed if c.get("max_similarity") is not None]
 
-    for q in tqdm(sample, desc="  Calibration (benign)"):
-        resp = pipeline.query(q["query"])
-        if not resp.blocked and resp.retrieved_chunks:
-            result = verifier.verify(resp.text, resp.retrieved_chunks)
-            similarities.append(result["max_similarity"])
+    sample = benign[:50]
+    remaining = sample[len(completed):]
+
+    with open(cal_ckpt, "a") as f:
+        for q in tqdm(remaining, desc="  Calibration (benign)"):
+            resp = pipeline.query(q["query"])
+            sim = None
+            if not resp.blocked and resp.retrieved_chunks:
+                result = verifier.verify(resp.text, resp.retrieved_chunks)
+                sim = result["max_similarity"]
+                similarities.append(sim)
+            f.write(json.dumps({"query": q["query"], "max_similarity": sim}) + "\n")
+            f.flush()
 
     if not similarities:
         print("  WARNING: No calibration data collected. Using default threshold 0.35")
@@ -175,30 +202,29 @@ def calibrate_grounding_verifier(benign: list) -> float:
         f"GROUNDING_THRESHOLD          = {round(threshold, 4)}   # calibrated",
     )
     config_path.write_text(updated, encoding="utf-8")
-    print(f"  ✅ Updated GROUNDING_THRESHOLD in config.py → {round(threshold, 4)}")
+    print(f"  [OK] Updated GROUNDING_THRESHOLD in config.py -> {round(threshold, 4)}")
 
     return threshold
 
 
 def main():
-    print("\n[System] Starting Unit 2 Experiment...")
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = RESULTS_DIR / "checkpoints" / "run_unit2"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     attacks = load_jsonl(ATTACKS_PATH)
     benign  = load_jsonl(BENIGN_PATH)
+    judge = ASRJudge()
 
-    print("[System] Initializing local LLM first to prevent PyTorch DLL conflicts...")
-    judge = ASRJudge()  # Forces LLMWrapper and Qwen model to load first
-    print("[System] Local LLM successfully loaded! Now building poisoned index...")
-    
     # Steps 1-2: Build poisoned index
     poisoned_index_dir = build_poisoned_index()
 
     # Steps 3-4: Evaluate integrity checker
-    integrity_results = evaluate_integrity_checker(poisoned_index_dir, attacks, benign)
+    integrity_results = evaluate_integrity_checker(poisoned_index_dir, attacks, benign,
+                                                   checkpoint_dir)
 
     # Step 6-7: Calibrate grounding verifier
-    calibrated_threshold = calibrate_grounding_verifier(benign)
+    calibrated_threshold = calibrate_grounding_verifier(benign, checkpoint_dir)
 
     # Save results
     results = {
@@ -209,7 +235,7 @@ def main():
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
 
-    print(f"\n✅ Unit 2 results saved → {out_path}")
+    print(f"\n[OK] Unit 2 results saved -> {out_path}")
 
 
 if __name__ == "__main__":

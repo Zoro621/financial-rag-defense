@@ -52,30 +52,53 @@ def load_jsonl(path):
         return [json.loads(l) for l in f]
 
 
-def run_config(config_name, cfg, attacks, benign, judge, baseline_latency):
-    print(f"[System] Debug: run_config starting for {config_name}")
-    print("[System] Debug: Initializing LLMWrapper inside run_config")
+def run_config(config_name, cfg, attacks, benign, judge, baseline_latency,
+               checkpoint_dir):
     llm      = LLMWrapper()
-    print("[System] Debug: Initializing FinancialRAGPipeline inside run_config")
     pipeline = FinancialRAGPipeline(cfg, llm=llm)
-    print("[System] Debug: Initializing LatencyTracker inside run_config")
     tracker  = LatencyTracker()
 
-    n_success = 0
-    for atk in tqdm(attacks, desc=f"  [{config_name}] attacks"):
-        resp = pipeline.query(atk["prompt"])
-        if not resp.blocked:
-            if judge.evaluate(atk["prompt"], resp.text).success:
-                n_success += 1
+    atk_ckpt_path = checkpoint_dir / f"{config_name}_attacks.jsonl"
+    ben_ckpt_path = checkpoint_dir / f"{config_name}_benign.jsonl"
 
-    asr_pct = n_success / max(len(attacks), 1) * 100
+    # ---- ASR: run on attack prompts ----------------------------------- #
+    n_attacks = len(attacks)
+    completed_attacks = load_jsonl(atk_ckpt_path) if atk_ckpt_path.exists() else []
+    n_success = sum(1 for c in completed_attacks if c["success"])
+    remaining_attacks = attacks[len(completed_attacks):]
 
-    benign_results = []
-    for q in tqdm(benign, desc=f"  [{config_name}] benign"):
-        resp = pipeline.query(q["query"])
-        benign_results.append(resp)
-        if not resp.blocked:
-            tracker.record(resp.latency_s)
+    with open(atk_ckpt_path, "a") as f:
+        for atk in tqdm(remaining_attacks, desc=f"  [{config_name}] attacks"):
+            resp = pipeline.query(atk["prompt"])
+            success = False
+            if not resp.blocked:
+                if judge.evaluate(atk["prompt"], resp.text).success:
+                    success = True
+                    n_success += 1
+            f.write(json.dumps({"prompt": atk["prompt"], "blocked": resp.blocked, "success": success}) + "\n")
+            f.flush()
+
+    asr_pct = n_success / max(n_attacks, 1) * 100
+
+    # ---- FPR + Latency: run on benign queries ------------------------- #
+    completed_benign = load_jsonl(ben_ckpt_path) if ben_ckpt_path.exists() else []
+    benign_results = list(completed_benign)
+
+    for c in completed_benign:
+        if not c["blocked"]:
+            tracker.record(c.get("latency_s", 0.0))
+
+    remaining_benign = benign[len(completed_benign):]
+
+    with open(ben_ckpt_path, "a") as f:
+        for q in tqdm(remaining_benign, desc=f"  [{config_name}] benign"):
+            resp = pipeline.query(q["query"])
+            res_dict = {"query": q["query"], "blocked": resp.blocked, "latency_s": getattr(resp, "latency_s", 0.0)}
+            benign_results.append(res_dict)
+            if not resp.blocked:
+                tracker.record(resp.latency_s)
+            f.write(json.dumps(res_dict) + "\n")
+            f.flush()
 
     fpr_stats = compute_stratified_fpr(benign_results, benign)
     lat_stats = tracker.summary()
@@ -103,15 +126,13 @@ def run_config(config_name, cfg, attacks, benign, judge, baseline_latency):
 
 
 def main():
-    print("\n[System] Starting Unit 1 Experiment...")
     TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = RESULTS_DIR / "checkpoints" / "run_unit1"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     attacks = load_jsonl(ATTACKS_PATH)
     benign  = load_jsonl(BENIGN_PATH)
-    
-    print("[System] Loading local LLM into GPU (this may take a few minutes if downloading weights for the first time)...")
     judge   = ASRJudge()
-    print("[System] Local LLM successfully loaded!")
 
     # Use config (a) baseline latency from baseline_results.csv if available
     baseline_latency = 1.0  # fallback
@@ -122,19 +143,16 @@ def main():
                 if row["defense_config"] == "a_basic_no_filters":
                     baseline_latency = float(row["latency_s"])
                     break
-        print(f"[System] Debug: baseline latency parsed = {baseline_latency}")
-    except Exception as e:
-        print(f"[System] Debug: Could not read baseline latency: {e}")
+    except Exception:
+        pass
 
-    print("[System] Debug: Setting up all_rows")
     all_rows = []
-    print(f"[System] Debug: UNIT1_CONFIGS contains {len(UNIT1_CONFIGS)} configs")
     for config_name, cfg in UNIT1_CONFIGS.items():
-        print(f"[System] Debug: Loop iteration for {config_name}")
         print(f"\n{'='*60}")
         print(f" Unit 1 Config: {config_name}")
         print(f"{'='*60}")
-        row = run_config(config_name, cfg, attacks, benign, judge, baseline_latency)
+        row = run_config(config_name, cfg, attacks, benign, judge, baseline_latency,
+                         checkpoint_dir)
         all_rows.append(row)
 
     csv_path = TABLES_DIR / "unit1_results.csv"
@@ -143,7 +161,7 @@ def main():
         writer.writeheader()
         writer.writerows(all_rows)
 
-    print(f"\n✅ Unit 1 results saved → {csv_path}")
+    print(f"\n[OK] Unit 1 results saved -> {csv_path}")
     for row in all_rows:
         print(f"  {row['defense_config']}: ASR={row['asr_pct']}%, FPR={row['fpr_pct']}%, disparity={row['max_disparity']}%")
 
